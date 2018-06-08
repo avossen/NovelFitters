@@ -19,6 +19,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected double x;
 	protected double W;
 	protected double nu;
+	protected int foundLambda;
 	protected LorentzVector q;
 	protected LorentzVector lv_beam;
 	protected LorentzVector lv_e;
@@ -37,6 +38,11 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 
 	}
 
+	public int getNumLambda()
+	{
+		return foundLambda;	
+	}
+	
 	public double getQ2() {
 		return Q2;
 	}
@@ -108,11 +114,11 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	 */
 	@Override
 	public PhysicsEvent getPhysicsEvent(DataEvent event) {
-
+		foundLambda=0;	
 		boolean banks_test = true; // check to see if the event has all of the banks present
 		if (!(event.hasBank(bankName))) {
 			banks_test = false;
-			System.out.println("couldn't find bank" + bankName);
+			//System.out.println("couldn't find bank" + bankName);
 		}
 		if (banks_test) {
 
@@ -130,7 +136,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 					// also, even if there are two of those, the good one seems to have chi2pid <
 					// 999.0
 					// also, 4000 is CT and 2000 FT
-					if (pid == 2112 && (status < 2200 || status > 2999 || chi2pid >= 999.0))
+				if (pid == 2112 && (status < 2200 || status > 2999 || chi2pid >= 999.0))
 						continue;
 				}
 				if (pid != 0) {
@@ -160,6 +166,19 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 			}
 			// check MC banks for a match
 			if (m_isMC) {
+				if(event.hasBank("MC::Lund"))
+				{
+					//System.out.println("found lund bank");
+					HipoDataBank eventBankLund = (HipoDataBank) event.getBank("MC::Lund"); // load particle bank
+					for (int current_part = 0; current_part < eventBankLund.rows(); current_part++) {
+						int pid = eventBankLund.getInt("pid", current_part);
+						if(pid==3122)
+						{
+							foundLambda++;
+							//System.out.println("Found lambda "+foundLambda);
+						}
+					}
+				}
 
 			}
 			return physEvent;
