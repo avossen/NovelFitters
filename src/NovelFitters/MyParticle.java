@@ -12,10 +12,13 @@ import org.jlab.clas.physics.Particle;
 public class MyParticle extends Particle {	
 	
 	public int matchingMCPartIndex;
+	public double m_chi2pid;
+	
+	
 	
 	public MyParticle(int pid,float px,float py, float pz, float vx, float vy,float vz)
 	{	
 		super(pid,px,py,pz,vx,vy,vz);
-		matchingMCPartIndex=0;
+		matchingMCPartIndex=-1;
 	}	
 }

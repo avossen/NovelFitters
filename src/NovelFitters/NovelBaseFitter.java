@@ -19,11 +19,14 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected double x;
 	protected double W;
 	protected double nu;
+	
 	protected int foundLambda;
 	protected LorentzVector q;
 	protected LorentzVector lv_beam;
 	protected LorentzVector lv_e;
 	protected String bankName;
+	
+	
 
 	public NovelBaseFitter(double beam, boolean isMC, boolean useMC) {
 		super(beam);
@@ -66,6 +69,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	public LorentzVector getL() {
 		return lv_beam;
 	}
+	
 
 	protected void computeKinematics(float px, float py, float pz) {
 		//
@@ -127,9 +131,10 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 			HipoDataBank eventBank = (HipoDataBank) event.getBank(bankName); // load particle bank
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
 				int pid = eventBank.getInt("pid", current_part);
+				int status = eventBank.getInt("status", current_part);
+				float chi2pid = eventBank.getFloat("chi2pid", current_part);
+				
 				if (!m_isMC) {
-					int status = eventBank.getInt("status", current_part);
-					float chi2pid = eventBank.getFloat("chi2pid", current_part);
 					// there seems to be a tendency to construct too many neutrons.
 					// the x*100 field in the status gives the number of scintillator responses
 					// good neutrons seem to have 2
@@ -139,6 +144,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				if (pid == 2112 && (status < 2200 || status > 2999 || chi2pid >= 999.0))
 						continue;
 				}
+				
 				if (pid != 0) {
 					float vx = eventBank.getFloat("vx", current_part);
 					float vy = eventBank.getFloat("vy", current_part);
@@ -159,7 +165,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 					}
 
 					MyParticle part = new MyParticle(pid, px, py, pz, vx, vy, vz);
-
+					part.m_chi2pid=chi2pid;
 					physEvent.addParticle(part);
 				}
 
