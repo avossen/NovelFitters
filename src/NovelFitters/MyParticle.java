@@ -15,8 +15,10 @@ public class MyParticle extends Particle {
 	public double m_chi2pid;
 	
 	//relatige to fastestd electron
-	public double FTOFTime;
-	public double FTOFsector;
+	public float beta;
+	public float FTOFPath;
+	public float FTOFTime;
+	public int FTOFsector;
 	
 	public MyParticle(int pid,float px,float py, float pz, float vx, float vy,float vz)
 	{	

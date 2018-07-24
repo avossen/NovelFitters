@@ -22,6 +22,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected double x;
 	protected double W;
 	protected double nu;
+	protected float electronTime;
 	
 	protected int foundLambda;
 	protected LorentzVector q;
@@ -39,7 +40,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	
 	protected  double part_Cal_CalTotal_E[]=new double[maxArrSize];
 	
-	protected  int[] part_DC_sector=new int[maxArrSize];
+//	protected  int[] part_DC_sector=new int[maxArrSize];
 	protected  float[] part_DC_c1x=new float[maxArrSize];
 	protected  float[] part_DC_c1y=new float[maxArrSize];
 
@@ -50,9 +51,10 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected float[] part_p=new float[maxArrSize];
 	
 	
-	protected static int[] FTOFHit=new int[maxArrSize];
-	protected static int[] FTOFSector=new int[maxArrSize];
-	protected static float[] FTOFTime=new float[maxArrSize];
+	protected  int[] FTOFHit=new int[maxArrSize];
+	protected  int[] FTOFSector=new int[maxArrSize];
+	protected  float[] FTOFTime=new float[maxArrSize];
+	protected float[] FTOFPath=new float[maxArrSize];
 	
 	//local copy of the event, so we can use it in multiple methods
 	protected DataEvent m_event;
@@ -110,7 +112,7 @@ protected void cleanArrays()
 	Arrays.fill(part_Cal_PCAL_E, (float)0.0);
 
 	Arrays.fill(part_Cal_CalTotal_E, 0.0);
-	Arrays.fill(part_DC_sector, 0);
+	//Arrays.fill(part_DC_sector, 0);
 	Arrays.fill(part_DC_c1x, (float)0.0);
 	Arrays.fill(part_DC_c1y, (float)0.0);
 
@@ -121,8 +123,9 @@ protected void cleanArrays()
 	Arrays.fill(part_DC_c3y, (float)0.0);
 	Arrays.fill(part_p, (float)0.0);
 	Arrays.fill(FTOFHit, 0);
-	Arrays.fill(FTOFTime, (float)0.0); 
-	Arrays.fill(FTOFSector, 0);
+	Arrays.fill(FTOFTime, (float)-1.0); 
+	Arrays.fill(FTOFPath, (float)-1.0); 
+	Arrays.fill(FTOFSector, -1);
 	
 }
 
@@ -188,23 +191,28 @@ protected void cleanArrays()
 		
 		if (!(event.hasBank(bankName))) {
 			banks_test = false;
-			System.out.println("couldn't find bank" + bankName);
+			//System.out.println("couldn't find bank" + bankName);
 		}
 		else
 		{
 			//System.out.println("bank_test fine");
 		}
+		m_event=event;
 		boolean loadedDC=this.loadDCInfo();
 		boolean loadedFTOF=this.loadFTOF();
 		boolean loadedCal=this.loadCalInfo();
 		
-		m_event=event;
+		
 		if (banks_test && loadedDC && loadedFTOF && loadedCal) {
 
 			int numElectrons = 0;
 			PhysicsEvent physEvent = new PhysicsEvent();
 			HipoDataBank eventBank = (HipoDataBank) event.getBank(bankName); // load particle bank
+			//if(eventBank.rows()>=maxArrSize)
+			//	continue;
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
+				if(current_part>=maxArrSize)
+					break;
 				//System.out.println("get pid");
 				int pid = eventBank.getInt("pid", current_part);
 				//System.out.println("get status");
@@ -253,34 +261,52 @@ protected void cleanArrays()
 					float mom = (float) Math.sqrt(px * px + py * py + pz * pz);
 					//the pindex of in the particle table should just be the index
 					this.part_p[current_part]=mom;
-					
-					//trigger thresholds is 10.6 GeV
-					if (pid == LundPID.Electron.lundCode() && numElectrons == 0 && mom>10.6) {					
+				//	System.out.println("electron mom: " + mom);
+					//trigger thresholds is 1.5 GeV
+					if (pid == LundPID.Electron.lundCode() && numElectrons == 0 && mom>1.5) {					
 						if(!survivesStefanElectronCuts()) {
 							continue;	
-
 						}
+						
+						//take this electron to define FTOF start time
+						this.electronTime=this.FTOFTime[current_part];
+						
 						
 						// looks like the first one has the higher momentum, so probably the scattered
 						// one
 						numElectrons++;
-						
+						//System.out.println("found electron with px " + px + " py "+ py + " pz " + pz);
 						// System.out.println("found electron num: " + numElectrons+" mom: "+mom);
 						computeKinematics(px, py, pz);
 					}
 
 					MyParticle part = new MyParticle(pid, px, py, pz, vx, vy, vz);
 					part.FTOFsector=this.FTOFSector[current_part];
-					if(this.FTOFSector>=0)
-						part.FTOFTime=this.FTOFTime[current_part]-electronTime;
-					else
-						part.FTOFTime=-1;
+					if(this.FTOFSector[current_part]>=0)
+					{
+						part.FTOFTime=this.FTOFTime[current_part];
+						part.FTOFPath=this.FTOFPath[current_part];
 					
+					}
+					else
+					{
+						part.FTOFTime=-1;
+						part.beta=-1;
+					}
 					part.m_chi2pid=chi2pid;
 					physEvent.addParticle(part);
 				}
 
 			}
+			//in case the scattered electron is not determine before the charged hadrons, we normalize the time after...
+			for (int i = 0; i < physEvent.count(); i++) {
+				
+				MyParticle part = (MyParticle) physEvent.getParticle(i);
+				part.FTOFTime=part.FTOFTime-this.electronTime;
+				float speedOLight=(float)29.9792; //in cm per ns as per units in hip bank
+				part.beta=(float)Math.pow(10,7)*part.FTOFPath/(part.FTOFTime*speedOLight);
+			}
+						
 			// check MC banks for a match
 			if (m_isMC) {
 				if(event.hasBank("MC::Lund"))
@@ -312,31 +338,13 @@ protected void cleanArrays()
 		//REC:scintillator
 		//REC:trajectory
 		
-		if (!(event.hasBank(bankName))) {
-			HipoDataBank eventBank = (HipoDataBank) event.getBank(bankName); // load particle bank
-			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
-				//System.out.println("get pid");
-				int pid = eventBank.getInt("pid", current_part);
-				//System.out.println("get status");
-				int status=-1;
-				float chi2pid=-1;
-				try {
-					//seems like mc does not have status or chi2pid
-					if(!m_isMC)
-					{
-						status = eventBank.getInt("status", current_part);	
-			
-		}
-		
-		
-		
+
 		return true;
 	}
 	
 	int stefanHadronPID()
 	{
-	
-		
+			
 		return LundPID.Pion.lundCode();
 	}
 	
@@ -353,7 +361,7 @@ protected void cleanArrays()
 			return false;
 		
 		//not sure if that is correct. I guess six setors * 6=2*180
-		double Pival=0.5;
+		double Pival=Math.PI;
 		double x_PCAL_rot = y_PCAL * Math.sin(sec_PCAL*60.0*Pival/180)
 		+ x_PCAL * Math.cos(sec_PCAL*60.0*Pival/180);
 		double y_PCAL_rot = y_PCAL * Math.cos(sec_PCAL*60.0*Pival/180)
@@ -396,8 +404,14 @@ protected void cleanArrays()
 	boolean DC_hit_position_region1_fiducial_cut(int j){
 		double angle = 60;
 		double height = 31;
-		double Pival=0.5;
-		int sec = part_DC_sector[j]-1;
+		double Pival=Math.PI;
+		//int sec = part_DC_sector[j]-1;
+		//let's just hope that it is the same acceptance
+		int sec=this.FTOFSector[j];
+		if(sec<0)
+		{
+			System.out.println("looking for DC hit position but didn't find ftof sector");
+		}
 		double x1_rot = part_DC_c1y[j] * Math.sin(sec*60.0*Pival/180) + part_DC_c1x[j] * Math.cos(sec*60.0*Pival/180);
 		double y1_rot = part_DC_c1y[j] * Math.cos(sec*60.0*Pival/180) - part_DC_c1x[j] * Math.sin(sec*60.0*Pival/180);
 		double slope = 1/Math.tan(0.5*angle*Pival/180);
@@ -413,19 +427,21 @@ protected void cleanArrays()
 	{
 		String bankName="REC::Scintillator";
 		if (!(m_event.hasBank(bankName))) {
-			System.out.println("couldn't find bank" + bankName);
+			//System.out.println("couldn't find bank" + bankName);
 			return false;
 		}
 		else
 		{
+			//System.out.println("got scintillator");
 			HipoDataBank eventBank = (HipoDataBank) m_event.getBank(bankName);
-			int counter=0;
+			
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
 				//System.out.println("get pid");
 				int pindex = eventBank.getInt("pindex", current_part);
 				int sector =eventBank.getInt("sector", current_part);
-				int time =eventBank.getFloat("time", current_part);
+				float time =eventBank.getFloat("time", current_part);
 				int detID = eventBank.getInt("detector", current_part);
+				float path=eventBank.getFloat("path", current_part);
 				if(pindex>=maxArrSize)
 				{
 					System.out.println("too many particles is trajectory bank: "+pindex);
@@ -437,36 +453,40 @@ protected void cleanArrays()
 					FTOFHit[pindex]=1;
 					FTOFSector[pindex]=sector;
 					FTOFTime[pindex]=time;
+					FTOFPath[pindex]=path;
 				}
 				else
 				{
-					FTOFHit[pindex]=0;
-					FTOFSector[pindex]=-1;
-					FTOFTime[pindex]=-1;
+					//this doesn't make sense
+				//	FTOFHit[pindex]=0;
+				//	FTOFSector[pindex]=-1;
+				//	FTOFTime[pindex]=-1;
 				}
 			
 			}
 		}
-		return false;
+		return true;
 	
 	}
 	
 	
 	boolean loadDCInfo()
 	{
-		String bankName="REC::Trajectory";
+		String bankName="REC::Traj";
 		if (!(m_event.hasBank(bankName))) {
-			System.out.println("couldn't find bank" + bankName);
+			//System.out.println("couldn't find bank" + bankName);
 			return false;
 		}
 		else
 		{
+		//	System.out.println("got trajectory");
 			HipoDataBank eventBank = (HipoDataBank) m_event.getBank(bankName);
-			int counter=0;
+			
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
 				//System.out.println("get pid");
 				int pindex = eventBank.getInt("pindex", current_part);
-				int detID = eventBank.getInt("detID", current_part);
+				int detID = eventBank.getInt("detId", current_part);
+				
 				if(pindex>=maxArrSize)
 				{
 					System.out.println("too many particles is trajectory bank: "+pindex);
@@ -475,36 +495,35 @@ protected void cleanArrays()
 				//entrance point to region 1
 				if(detID==12)
 				{
-					int sector = eventBank.getInt("sector", current_part);	
-					part_DC_sector[pindex]=sector;
-					double x = eventBank.getFloat("x", current_part);
+					//trajectory doesn't have sector info...
+					//int sector = eventBank.getInt("sector", current_part);	
+					//part_DC_sector[pindex]=sector;
+					float x = eventBank.getFloat("x", current_part);
 					part_DC_c1x[pindex]=x;
-					double y = eventBank.getFloat("y", current_part);
+					float y = eventBank.getFloat("y", current_part);
 					part_DC_c1y[pindex]=y;
 				}
 				if(detID==24)
 				{
-					double x = eventBank.getFloat("x", current_part);
+					float x = eventBank.getFloat("x", current_part);
 					part_DC_c2x[pindex]=x;
-					double y = eventBank.getFloat("y", current_part);
+					float y = eventBank.getFloat("y", current_part);
 					part_DC_c2y[pindex]=y;
 				}
 			if(detID==36)
 			{
-					double x = eventBank.getFloat("x", current_part);
+					float x = eventBank.getFloat("x", current_part);
 					part_DC_c2x[pindex]=x;
-					double y = eventBank.getFloat("y", current_part);
+					float y = eventBank.getFloat("y", current_part);
 					part_DC_c2y[pindex]=y;
 					
-					counter++;
+					//counter++;
 				}
 			}
 		}
-		return false;
+		return true;
 	
 	}
-	
-	
 	
 	
 	
@@ -513,11 +532,12 @@ protected void cleanArrays()
 		
 		String bankName="REC::Calorimeter";
 		if (!(m_event.hasBank(bankName))) {
-			System.out.println("couldn't find bank" + bankName);
+			//System.out.println("couldn't find bank" + bankName);
 			return false;
 		}
 		else
 		{
+			//System.out.println("got calo");
 			HipoDataBank eventBank = (HipoDataBank) m_event.getBank(bankName);
 			int counter=0;
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
@@ -530,15 +550,15 @@ protected void cleanArrays()
 				}
 				int layer=eventBank.getInt("layer", current_part);
 				//pcal is layer 1, 4 ECinner, 7 ECOuter
-				double energy=eventBank.getFloat("energy",current_part);
+				float energy=eventBank.getFloat("energy",current_part);
 				if(layer==1)
 				{
 					calPindex[counter]=pindex;
 					int sector = eventBank.getInt("sector", current_part);
 					part_Cal_PCAL_sector[pindex]=sector;
-					double x = eventBank.getFloat("x", current_part);
+					float x = eventBank.getFloat("x", current_part);
 					part_Cal_PCAL_x[pindex]=x;
-					double y = eventBank.getFloat("y", current_part);
+					float y = eventBank.getFloat("y", current_part);
 					part_Cal_PCAL_y[pindex]=y;
 					part_Cal_PCAL_E[pindex]=energy;		
 				}
@@ -551,18 +571,18 @@ protected void cleanArrays()
 			}
 			
 		}
-		return false;
+		return true;
 	}
 		
 
 	
 			boolean hasPCALInfo(int particleIndex)
 			{
-				string bankName="REC::Calorimeter";
+				String bankName="REC::Calorimeter";
 			
 				if (!(m_event.hasBank(bankName))) {
 					
-					System.out.println("couldn't find bank" + bankName);
+					//System.out.println("couldn't find bank" + bankName);
 					return false;
 				}
 				else
@@ -575,7 +595,7 @@ protected void cleanArrays()
 							return true;
 					}
 				}
-				return false;
+				return true;
 			}
 	
 			
