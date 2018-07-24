@@ -5,6 +5,9 @@ import org.jlab.clas.physics.Particle;
 import org.jlab.clas.physics.PhysicsEvent;
 import org.jlab.io.base.DataEvent;
 import org.jlab.io.hipo.HipoDataBank;
+
+import java.util.Arrays;
+
 import org.jlab.clas.physics.*;
 
 public class NovelBaseFitter extends GenericKinematicFitter {
@@ -25,26 +28,31 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected LorentzVector lv_beam;
 	protected LorentzVector lv_e;
 	protected String bankName;
-	protected static int pionLundCode=211;
-	protected static int maxArrSize=400;
-	protected static int[] part_Cal_PCAL_sector=new int[maxArrSize];
-	protected static int[] calPindex=new int[maxArrSize];
-	protected static double[] part_Cal_PCAL_x=new double[maxArrSize];
-	protected static double[] part_Cal_PCAL_y=new double[maxArrSize];
-	protected static double part_Cal_PCAL_E[]=new double[maxArrSize];
-	
-	protected static double part_Cal_CalTotal_E[]=new double[maxArrSize];
-	
-	protected static int[] part_DC_sector=new int[maxArrSize];
-	protected static double[] part_DC_c1x=new double[maxArrSize];
-	protected static double[] part_DC_c1y=new double[maxArrSize];
 
-	protected static double[] part_DC_c2x=new double[maxArrSize];
-	protected static double[] part_DC_c2y=new double[maxArrSize];
-	protected static double[] part_DC_c3x=new double[maxArrSize];
-	protected static double[] part_DC_c3y=new double[maxArrSize];
+	protected static int maxArrSize=400;
+	//don't make the arrays static, since we will have several instances of the fitter running (e.g. data and mc)
+	protected  int[] part_Cal_PCAL_sector=new int[maxArrSize];
+	protected  int[] calPindex=new int[maxArrSize];
+	protected  float[] part_Cal_PCAL_x=new float[maxArrSize];
+	protected  float[] part_Cal_PCAL_y=new float[maxArrSize];
+	protected  float part_Cal_PCAL_E[]=new float[maxArrSize];
+	
+	protected  double part_Cal_CalTotal_E[]=new double[maxArrSize];
+	
+	protected  int[] part_DC_sector=new int[maxArrSize];
+	protected  float[] part_DC_c1x=new float[maxArrSize];
+	protected  float[] part_DC_c1y=new float[maxArrSize];
+
+	protected  float[] part_DC_c2x=new float[maxArrSize];
+	protected  float[] part_DC_c2y=new float[maxArrSize];
+	protected  float[] part_DC_c3x=new float[maxArrSize];
+	protected  float[] part_DC_c3y=new float[maxArrSize];
+	protected float[] part_p=new float[maxArrSize];
+	
 	
 	protected static int[] FTOFHit=new int[maxArrSize];
+	protected static int[] FTOFSector=new int[maxArrSize];
+	protected static float[] FTOFTime=new float[maxArrSize];
 	
 	//local copy of the event, so we can use it in multiple methods
 	protected DataEvent m_event;
@@ -92,6 +100,31 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		return lv_beam;
 	}
 	
+protected void cleanArrays()
+{
+	
+	Arrays.fill(part_Cal_PCAL_sector, 0);
+	Arrays.fill(calPindex, 0);
+	Arrays.fill(part_Cal_PCAL_x,(float)0.0);
+	Arrays.fill(part_Cal_PCAL_y,(float)0.0);
+	Arrays.fill(part_Cal_PCAL_E, (float)0.0);
+
+	Arrays.fill(part_Cal_CalTotal_E, 0.0);
+	Arrays.fill(part_DC_sector, 0);
+	Arrays.fill(part_DC_c1x, (float)0.0);
+	Arrays.fill(part_DC_c1y, (float)0.0);
+
+	Arrays.fill(part_DC_c2x, (float)0.0);
+	Arrays.fill(part_DC_c2y, (float)0.0);
+	
+	Arrays.fill(part_DC_c3x, (float)0.0);
+	Arrays.fill(part_DC_c3y, (float)0.0);
+	Arrays.fill(part_p, (float)0.0);
+	Arrays.fill(FTOFHit, 0);
+	Arrays.fill(FTOFTime, (float)0.0); 
+	Arrays.fill(FTOFSector, 0);
+	
+}
 
 	protected void computeKinematics(float px, float py, float pz) {
 		//`
@@ -148,8 +181,11 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	 */
 	@Override
 	public PhysicsEvent getPhysicsEvent(DataEvent event) {
+	
+	this.cleanArrays();
 		foundLambda=0;	
 		boolean banks_test = true; // check to see if the event has all of the banks present
+		
 		if (!(event.hasBank(bankName))) {
 			banks_test = false;
 			System.out.println("couldn't find bank" + bankName);
@@ -158,8 +194,12 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		{
 			//System.out.println("bank_test fine");
 		}
+		boolean loadedDC=this.loadDCInfo();
+		boolean loadedFTOF=this.loadFTOF();
+		boolean loadedCal=this.loadCalInfo();
+		
 		m_event=event;
-		if (banks_test) {
+		if (banks_test && loadedDC && loadedFTOF && loadedCal) {
 
 			int numElectrons = 0;
 			PhysicsEvent physEvent = new PhysicsEvent();
@@ -174,9 +214,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 					//seems like mc does not have status or chi2pid
 					if(!m_isMC)
 					{
-				 status = eventBank.getInt("status", current_part);
-				
-					chi2pid = eventBank.getFloat("chi2pid", current_part);
+						status = eventBank.getInt("status", current_part);
+						chi2pid = eventBank.getFloat("chi2pid", current_part);
 					}
 				}
 				catch(NullPointerException ex)
@@ -206,24 +245,37 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 					float pz = eventBank.getFloat("pz", current_part);
 					// System.out.println("pid: "+ pid +" pz: "+ pz +" status " + status + "
 					// chi2pid: " + chi2pid);
-					if (pid == 11 && numElectrons == 0) {
+					
+					///Stefan's vz cut is sector dependent. Here only rough
+					if(vz< -7 || vz>10)
+						continue;
+					
+					float mom = (float) Math.sqrt(px * px + py * py + pz * pz);
+					//the pindex of in the particle table should just be the index
+					this.part_p[current_part]=mom;
+					
+					//trigger thresholds is 10.6 GeV
+					if (pid == LundPID.Electron.lundCode() && numElectrons == 0 && mom>10.6) {					
 						if(!survivesStefanElectronCuts()) {
 							continue;	
 
 						}
 						
-						
-						
-						
 						// looks like the first one has the higher momentum, so probably the scattered
 						// one
 						numElectrons++;
-						double mom = Math.sqrt(px * px + py * py + pz * pz);
+						
 						// System.out.println("found electron num: " + numElectrons+" mom: "+mom);
 						computeKinematics(px, py, pz);
 					}
 
 					MyParticle part = new MyParticle(pid, px, py, pz, vx, vy, vz);
+					part.FTOFsector=this.FTOFSector[current_part];
+					if(this.FTOFSector>=0)
+						part.FTOFTime=this.FTOFTime[current_part]-electronTime;
+					else
+						part.FTOFTime=-1;
+					
 					part.m_chi2pid=chi2pid;
 					physEvent.addParticle(part);
 				}
@@ -272,7 +324,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 					//seems like mc does not have status or chi2pid
 					if(!m_isMC)
 					{
-				 status = eventBank.getInt("status", current_part);	
+						status = eventBank.getInt("status", current_part);	
 			
 		}
 		
@@ -285,7 +337,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	{
 	
 		
-		return pionLundCode;
+		return LundPID.Pion.lundCode();
 	}
 	
 	//C++ code from stefan's note
@@ -316,6 +368,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		&& x_PCAL_rot < 372) return true;
 		else return false;
 		}
+	
 	boolean EC_sampling_fraction_cut(int j){
 		double sigma_range = 3;
 		double p0mean[] = {0.101621, 0.115216, 0.109593, 0.114007, 0.114176, 0.108219};
@@ -324,27 +377,30 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		double p3mean[] = {-0.000966913, -0.000921184, -0.00130608, -0.000631906, -0.000827219, -0.00193565};
 		double p0sigma[] = {0.0132654, 0.014592, 0.0211849, 0.0198346, 0.0176063, 0.0213921};
 		double p1sigma[] = {0.00384941, 0.00340508, -0.0015, -0.000342043, 0.00119106, -0.00108573};
-		double mean, double sigma, upper_lim_total , double lower_lim_total ;
-		for(Int_t k = 0; k < 6; k++){
+		double mean=0.0;
+		double sigma=0.0;
+		double upper_lim_total=0.0;
+		double lower_lim_total=0.0;
+		for(int k = 0; k < 6; k++){
 		if(part_Cal_PCAL_sector[j]-1 == k){
-		mean = p0mean[k] *( 1 + part_p[j]/sqrt(pow(part_p[j],2) + p1mean[k])) + p2mean[k] * part_p[j] + p3mean[k] * pow(part_p[j],2);
-		sigma = p0sigma[k] + p1sigma[k] * sqrt(part_p[j]);
+		mean = p0mean[k] *( 1 + part_p[j]/Math.sqrt(Math.pow(part_p[j],2) + p1mean[k])) + p2mean[k] * part_p[j] + p3mean[k] * Math.pow(part_p[j],2);
+		sigma = p0sigma[k] + p1sigma[k] * Math.sqrt(part_p[j]);
 		upper_lim_total = mean + sigma_range * sigma;
 		lower_lim_total = mean - sigma_range * sigma;
 		}
 		}
-		if(part_Cal_energy_total[j]/part_p[j] <= upper_lim_total && part_Cal_energy_total[j]/part_p[j] >= lower_lim_total) return true;
+		if(this.part_Cal_CalTotal_E[j]/part_p[j] <= upper_lim_total && this.part_Cal_CalTotal_E[j]/part_p[j] >= lower_lim_total) return true;
 		else return false;
 		}
-	
+	 
 	boolean DC_hit_position_region1_fiducial_cut(int j){
 		double angle = 60;
 		double height = 31;
 		double Pival=0.5;
 		int sec = part_DC_sector[j]-1;
-		double x1_rot = part_DC_c1y[j] * sin(sec*60.0*Pival/180) + part_DC_c1x[j] * cos(sec*60.0*Pival/180);
-		double y1_rot = part_DC_c1y[j] * cos(sec*60.0*Pival/180) - part_DC_c1x[j] * sin(sec*60.0*Pival/180);
-		double slope = 1/tan(0.5*angle*Pival/180);
+		double x1_rot = part_DC_c1y[j] * Math.sin(sec*60.0*Pival/180) + part_DC_c1x[j] * Math.cos(sec*60.0*Pival/180);
+		double y1_rot = part_DC_c1y[j] * Math.cos(sec*60.0*Pival/180) - part_DC_c1x[j] * Math.sin(sec*60.0*Pival/180);
+		double slope = 1/Math.tan(0.5*angle*Pival/180);
 		double left = (height - slope * y1_rot);
 		double right = (height + slope * y1_rot);
 		double radius2_DCr1 = Math.pow(32,2)-Math.pow(y1_rot,2);
@@ -367,6 +423,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
 				//System.out.println("get pid");
 				int pindex = eventBank.getInt("pindex", current_part);
+				int sector =eventBank.getInt("sector", current_part);
+				int time =eventBank.getFloat("time", current_part);
 				int detID = eventBank.getInt("detector", current_part);
 				if(pindex>=maxArrSize)
 				{
@@ -377,10 +435,14 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				if(detID==12)
 				{
 					FTOFHit[pindex]=1;
+					FTOFSector[pindex]=sector;
+					FTOFTime[pindex]=time;
 				}
 				else
 				{
 					FTOFHit[pindex]=0;
+					FTOFSector[pindex]=-1;
+					FTOFTime[pindex]=-1;
 				}
 			
 			}
@@ -415,23 +477,23 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				{
 					int sector = eventBank.getInt("sector", current_part);	
 					part_DC_sector[pindex]=sector;
-					double x = eventBank.getDouble("x", current_part);
+					double x = eventBank.getFloat("x", current_part);
 					part_DC_c1x[pindex]=x;
-					double y = eventBank.getDouble("y", current_part);
+					double y = eventBank.getFloat("y", current_part);
 					part_DC_c1y[pindex]=y;
 				}
 				if(detID==24)
 				{
-					double x = eventBank.getDouble("x", current_part);
+					double x = eventBank.getFloat("x", current_part);
 					part_DC_c2x[pindex]=x;
-					double y = eventBank.getDouble("y", current_part);
+					double y = eventBank.getFloat("y", current_part);
 					part_DC_c2y[pindex]=y;
 				}
 			if(detID==36)
 			{
-					double x = eventBank.getDouble("x", current_part);
+					double x = eventBank.getFloat("x", current_part);
 					part_DC_c2x[pindex]=x;
-					double y = eventBank.getDouble("y", current_part);
+					double y = eventBank.getFloat("y", current_part);
 					part_DC_c2y[pindex]=y;
 					
 					counter++;
@@ -456,11 +518,6 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		}
 		else
 		{
-			
-		for(int i=0;i<maxArrSize;i++)
-		{
-			
-		}
 			HipoDataBank eventBank = (HipoDataBank) m_event.getBank(bankName);
 			int counter=0;
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
@@ -473,21 +530,22 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				}
 				int layer=eventBank.getInt("layer", current_part);
 				//pcal is layer 1, 4 ECinner, 7 ECOuter
-				double energy=eventBank.getDouble("energy",current_part);
+				double energy=eventBank.getFloat("energy",current_part);
 				if(layer==1)
 				{
 					calPindex[counter]=pindex;
 					int sector = eventBank.getInt("sector", current_part);
 					part_Cal_PCAL_sector[pindex]=sector;
-					double x = eventBank.getDouble("x", current_part);
+					double x = eventBank.getFloat("x", current_part);
 					part_Cal_PCAL_x[pindex]=x;
-					double y = eventBank.getDouble("y", current_part);
+					double y = eventBank.getFloat("y", current_part);
 					part_Cal_PCAL_y[pindex]=y;
 					part_Cal_PCAL_E[pindex]=energy;		
 				}
 				if(layer==1 || layer==4 || layer==7)
 				{
-					part_CalTotal+=energy
+					//this was set to zero at the start of the event
+					part_Cal_CalTotal_E[pindex]+=energy;
 				}
 				counter++;
 			}
