@@ -37,10 +37,10 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected  float[] part_Cal_PCAL_x=new float[maxArrSize];
 	protected  float[] part_Cal_PCAL_y=new float[maxArrSize];
 	protected  float part_Cal_PCAL_E[]=new float[maxArrSize];
-	
+	protected int trkSectors[]=new int[maxArrSize];
 	protected  double part_Cal_CalTotal_E[]=new double[maxArrSize];
 	
-//	protected  int[] part_DC_sector=new int[maxArrSize];
+	protected  int[] part_DC_sector=new int[maxArrSize];
 	protected  float[] part_DC_c1x=new float[maxArrSize];
 	protected  float[] part_DC_c1y=new float[maxArrSize];
 
@@ -49,7 +49,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected  float[] part_DC_c3x=new float[maxArrSize];
 	protected  float[] part_DC_c3y=new float[maxArrSize];
 	protected float[] part_p=new float[maxArrSize];
-	
+
 	
 	protected  int[] FTOFHit=new int[maxArrSize];
 	protected  int[] FTOFSector=new int[maxArrSize];
@@ -104,7 +104,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	
 protected void cleanArrays()
 {
-	
+	Arrays.fill(this.trkSectors, 0);
 	Arrays.fill(part_Cal_PCAL_sector, 0);
 	Arrays.fill(calPindex, 0);
 	Arrays.fill(part_Cal_PCAL_x,(float)0.0);
@@ -112,7 +112,7 @@ protected void cleanArrays()
 	Arrays.fill(part_Cal_PCAL_E, (float)0.0);
 
 	Arrays.fill(part_Cal_CalTotal_E, 0.0);
-	//Arrays.fill(part_DC_sector, 0);
+	Arrays.fill(part_DC_sector, 0);
 	Arrays.fill(part_DC_c1x, (float)0.0);
 	Arrays.fill(part_DC_c1y, (float)0.0);
 
@@ -189,6 +189,16 @@ protected void cleanArrays()
 		foundLambda=0;	
 		boolean banks_test = true; // check to see if the event has all of the banks present
 		
+		if(event.hasBank("REC::Track"))
+		{
+	//	System.out.println("found track bank");	
+		
+		}
+		else
+		{
+			//System.out.println("nope...");
+		}
+		
 		if (!(event.hasBank(bankName))) {
 			banks_test = false;
 			//System.out.println("couldn't find bank" + bankName);
@@ -198,18 +208,27 @@ protected void cleanArrays()
 			//System.out.println("bank_test fine");
 		}
 		m_event=event;
+		
 		boolean loadedDC=this.loadDCInfo();
 		boolean loadedFTOF=this.loadFTOF();
 		boolean loadedCal=this.loadCalInfo();
 		
-		
-		if (banks_test && loadedDC && loadedFTOF && loadedCal) {
-
-			int numElectrons = 0;
-			PhysicsEvent physEvent = new PhysicsEvent();
+		try
+		{
+			if (!banks_test || !loadedDC || !loadedFTOF || !loadedCal) {
+				throw new Exception("bank missing");
+			}
 			HipoDataBank eventBank = (HipoDataBank) event.getBank(bankName); // load particle bank
+			if(!findScatteredElectron(eventBank))
+			{
+				throw new Exception("no electron");
+			}
+			PhysicsEvent physEvent = new PhysicsEvent();
+			
 			//if(eventBank.rows()>=maxArrSize)
 			//	continue;
+			
+			//go for the hadrons
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
 				if(current_part>=maxArrSize)
 					break;
@@ -228,8 +247,6 @@ protected void cleanArrays()
 				}
 				catch(NullPointerException ex)
 				{
-					
-				
 				}
 			
 				//System.out.println("done");
@@ -261,32 +278,17 @@ protected void cleanArrays()
 					float mom = (float) Math.sqrt(px * px + py * py + pz * pz);
 					//the pindex of in the particle table should just be the index
 					this.part_p[current_part]=mom;
-				//	System.out.println("electron mom: " + mom);
-					//trigger thresholds is 1.5 GeV
-					if (pid == LundPID.Electron.lundCode() && numElectrons == 0 && mom>1.5) {					
-						if(!survivesStefanElectronCuts()) {
-							continue;	
-						}
-						
-						//take this electron to define FTOF start time
-						this.electronTime=this.FTOFTime[current_part];
-						
-						
-						// looks like the first one has the higher momentum, so probably the scattered
-						// one
-						numElectrons++;
-						//System.out.println("found electron with px " + px + " py "+ py + " pz " + pz);
-						// System.out.println("found electron num: " + numElectrons+" mom: "+mom);
-						computeKinematics(px, py, pz);
-					}
-
+				
 					MyParticle part = new MyParticle(pid, px, py, pz, vx, vy, vz);
 					part.FTOFsector=this.FTOFSector[current_part];
 					if(this.FTOFSector[current_part]>=0)
 					{
-						part.FTOFTime=this.FTOFTime[current_part];
+						part.FTOFTime=this.FTOFTime[current_part]-this.electronTime;
 						part.FTOFPath=this.FTOFPath[current_part];
-					
+						float speedOLight=(float)29.9792; //in cm per ns as per units in hip bank
+						//according to Stefan's code, this should be 10^7, but that makes beta too large, maybe speed of light is not in the right units
+						//part.beta=(float)Math.pow(10,1)*part.FTOFPath/(part.FTOFTime*speedOLight);
+						part.beta=part.FTOFPath/(part.FTOFTime*speedOLight);
 					}
 					else
 					{
@@ -297,14 +299,6 @@ protected void cleanArrays()
 					physEvent.addParticle(part);
 				}
 
-			}
-			//in case the scattered electron is not determine before the charged hadrons, we normalize the time after...
-			for (int i = 0; i < physEvent.count(); i++) {
-				
-				MyParticle part = (MyParticle) physEvent.getParticle(i);
-				part.FTOFTime=part.FTOFTime-this.electronTime;
-				float speedOLight=(float)29.9792; //in cm per ns as per units in hip bank
-				part.beta=(float)Math.pow(10,7)*part.FTOFPath/(part.FTOFTime*speedOLight);
 			}
 						
 			// check MC banks for a match
@@ -326,10 +320,79 @@ protected void cleanArrays()
 			}
 			return physEvent;
 		}
-		return new PhysicsEvent(this.m_beam);
+		catch(Exception e)
+		{
+			return new PhysicsEvent(this.m_beam);
+		}
+		
 	}
 	
-	boolean survivesStefanElectronCuts()
+	
+	boolean findScatteredElectron(HipoDataBank eventBank)
+	{
+		boolean foundElectron=false;
+		float maxMom=-1000;
+		float maxPx=0;
+		float maxPy=0;
+		float maxPz=0;
+	
+		for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
+			
+			int pid = eventBank.getInt("pid", current_part);
+			//System.out.println("get status");
+					
+			if (pid != 0) {
+				float vx = eventBank.getFloat("vx", current_part);
+				float vy = eventBank.getFloat("vy", current_part);
+				float vz = eventBank.getFloat("vz", current_part);
+				float px = eventBank.getFloat("px", current_part);
+				float py = eventBank.getFloat("py", current_part);
+				float pz = eventBank.getFloat("pz", current_part);
+				// System.out.println("pid: "+ pid +" pz: "+ pz +" status " + status + "
+				// chi2pid: " + chi2pid);
+				
+				///Stefan's vz cut is sector dependent. Here only rough
+				if(!DC_z_vertex_cut(current_part,vz))
+					continue;
+			
+				
+				float mom = (float) Math.sqrt(px * px + py * py + pz * pz);
+				//the pindex of in the particle table should just be the index
+				this.part_p[current_part]=mom;
+			//	System.out.println("electron mom: " + mom);
+				//trigger thresholds is 1.5 GeV
+				if (pid == LundPID.Electron.lundCode()  && mom>1.5) {					
+					if(!survivesStefanElectronCuts()) {
+						continue;	
+					}
+					foundElectron=true;
+					if(mom>maxMom)
+					{
+						maxMom=mom;
+						maxPx=px;
+						maxPy=py;
+						maxPz=pz;
+					}
+					//take this electron to define FTOF start time
+					this.electronTime=this.FTOFTime[current_part];
+					// looks like the first one has the higher momentum, so probably the scattered
+					// one
+					
+					//System.out.println("found electron with px " + px + " py "+ py + " pz " + pz);
+					// System.out.println("found electron num: " + numElectrons+" mom: "+mom);
+					
+				}
+			}
+		}
+		if(foundElectron)
+		{
+			computeKinematics(maxPx, maxPy, maxPz);
+		}
+		return foundElectron;
+	}
+	
+	
+	boolean survivesStefanElectronCuts(int partIndex)
 	{
 		
 		//REC:particle
@@ -338,8 +401,14 @@ protected void cleanArrays()
 		//REC:scintillator
 		//REC:trajectory
 		
-
-		return true;
+		boolean ecFiducialCuts=EC_hit_position_fiducial_cut(partIndex);
+		boolean dcFiducialCuts=DC_hit_position_fiducial_cut(partIndex);
+		boolean ecEnergyDeposit=EC_sampling_fraction_cut(partIndex);
+		boolean hasFtofHit=false;
+		if(this.FTOFHit[partIndex]>0)
+			hasFtofHit=true;
+		
+		return ecFiducialCuts&&dcFiducialCuts&&ecEnergyDeposit&&hasFtofHit;
 	}
 	
 	int stefanHadronPID()
@@ -347,6 +416,29 @@ protected void cleanArrays()
 			
 		return LundPID.Pion.lundCode();
 	}
+	
+	boolean DC_z_vertex_cut(int j, float vz){
+		 
+		  double vz_min_sect[] = {-8, -8, -8, -10, -7, -7};
+		  double vz_max_sect[] = {12, 12, 12, 9, 13, 14};
+		  double vz_min = 0;
+		  double vz_max = 0;
+
+		  for(int k = 0; k < 6; k++)
+		  {  
+			  //uses pcal... I guess fine for electrons where we demand a pcal hit anyways.
+		    if(part_Cal_PCAL_sector[j]-1 == k){
+		      vz_min = vz_min_sect[k];
+		      vz_max = vz_max_sect[k];
+		    }
+		  }
+
+		  if(vz > vz_min && vz < vz_max) 
+			  return true;
+		  else 
+			  return false;
+		}
+	
 	
 	//C++ code from stefan's note
 	
@@ -401,27 +493,39 @@ protected void cleanArrays()
 		else return false;
 		}
 	 
-	boolean DC_hit_position_region1_fiducial_cut(int j){
-		double angle = 60;
-		double height = 31;
-		double Pival=Math.PI;
-		//int sec = part_DC_sector[j]-1;
-		//let's just hope that it is the same acceptance
-		int sec=this.FTOFSector[j];
-		if(sec<0)
-		{
-			System.out.println("looking for DC hit position but didn't find ftof sector");
-		}
-		double x1_rot = part_DC_c1y[j] * Math.sin(sec*60.0*Pival/180) + part_DC_c1x[j] * Math.cos(sec*60.0*Pival/180);
-		double y1_rot = part_DC_c1y[j] * Math.cos(sec*60.0*Pival/180) - part_DC_c1x[j] * Math.sin(sec*60.0*Pival/180);
-		double slope = 1/Math.tan(0.5*angle*Pival/180);
-		double left = (height - slope * y1_rot);
-		double right = (height + slope * y1_rot);
-		double radius2_DCr1 = Math.pow(32,2)-Math.pow(y1_rot,2);
-		if (x1_rot > left && x1_rot > right && Math.pow(x1_rot,2) > radius2_DCr1) return true;
-		else return false;
-		}
+	boolean DC_hit_position_fiducial_cut(int j)
+	{
 	
+		double Pival=Math.PI;
+		double angle = 60;
+		boolean cut[]=new boolean[3];
+		double height[]= {31,47,53};
+		double radius[]= {32,49,54};
+		
+		double x[]= {part_DC_c1x[j],part_DC_c2x[j],part_DC_c3x[j]};
+		double y[]= {part_DC_c1y[j],part_DC_c2y[j],part_DC_c3y[j]};	
+		
+		int sec[]= {this.part_DC_sector[j]-1,this.part_DC_sector[j]-1,this.part_DC_sector[j]-1};
+		for(int i=0;i<2;i++)
+		{
+		
+		if(sec[j]<0)
+		{
+			System.out.println("looking for DC hit position but didn't find pcal sector");
+		}
+		double x1_rot = y[i] * Math.sin(sec[i]*60.0*Pival/180) + x[i] * Math.cos(sec[i]*60.0*Pival/180);
+		double y1_rot = y[i] * Math.cos(sec[i]*60.0*Pival/180) - x[i]* Math.sin(sec[i]*60.0*Pival/180);
+		double slope = 1/Math.tan(0.5*angle*Pival/180);
+		double left = (height[i] - slope * y1_rot);
+		double right = (height[i] + slope * y1_rot);
+		double radius2 = Math.pow(radius[i],2)-Math.pow(y1_rot,2);
+		if (x1_rot > left && x1_rot > right && Math.pow(x1_rot,2) > radius2)
+			cut[i]=true;
+		else
+			cut[i]=false;
+		}
+		return (cut[0]&&cut[1]&&cut[2]);
+	}
 	
 	boolean loadFTOF()
 	{
@@ -473,7 +577,9 @@ protected void cleanArrays()
 	boolean loadDCInfo()
 	{
 		String bankName="REC::Traj";
-		if (!(m_event.hasBank(bankName))) {
+		//needed to get DC sector
+		String bankName2="TimeBasedTrkg::TBTracks";
+		if (!(m_event.hasBank(bankName)&&m_event.hasBank(bankName2) )) {
 			//System.out.println("couldn't find bank" + bankName);
 			return false;
 		}
@@ -481,9 +587,17 @@ protected void cleanArrays()
 		{
 		//	System.out.println("got trajectory");
 			HipoDataBank eventBank = (HipoDataBank) m_event.getBank(bankName);
+			HipoDataBank trkBank = (HipoDataBank) m_event.getBank(bankName2);
+			
 			
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
+				int sector = eventBank.getInt("sector", current_part);
+				this.trkSectors[current_part]=sector;
+			}
+			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
 				//System.out.println("get pid");
+				//index in the track bank
+				int index = eventBank.getInt("index", current_part);
 				int pindex = eventBank.getInt("pindex", current_part);
 				int detID = eventBank.getInt("detId", current_part);
 				
@@ -492,6 +606,8 @@ protected void cleanArrays()
 					System.out.println("too many particles is trajectory bank: "+pindex);
 					break;
 				}
+				
+				part_DC_sector[pindex]=trkSectors[index];
 				//entrance point to region 1
 				if(detID==12)
 				{
