@@ -408,7 +408,12 @@ protected void cleanArrays()
 		if(this.FTOFHit[partIndex]>0)
 			hasFtofHit=true;
 		
-		return ecFiducialCuts&&dcFiducialCuts&&ecEnergyDeposit&&hasFtofHit;
+		//pcal energy
+		boolean pcalECut=true;
+		if(this.part_Cal_PCAL_E[partIndex]<0.06)
+			pcalECut=false;
+		
+		return ecFiducialCuts&&dcFiducialCuts&&ecEnergyDeposit&&hasFtofHit && pcalECut;
 	}
 	
 	int stefanHadronPID()
@@ -495,7 +500,6 @@ protected void cleanArrays()
 	 
 	boolean DC_hit_position_fiducial_cut(int j)
 	{
-	
 		double Pival=Math.PI;
 		double angle = 60;
 		boolean cut[]=new boolean[3];
