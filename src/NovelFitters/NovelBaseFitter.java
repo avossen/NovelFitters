@@ -10,6 +10,8 @@ import java.util.Arrays;
 
 import org.jlab.clas.physics.*;
 
+import org.apache.commons.math3.*;
+
 public class NovelBaseFitter extends GenericKinematicFitter {
 
 	public Vector3 gNBoost;
@@ -23,6 +25,9 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected double W;
 	protected double nu;
 	protected float electronTime;
+	protected boolean population_weighting=false;
+	protected boolean population_weighting_CD=false;
+	protected boolean outbending=false;
 	
 	protected int foundLambda;
 	protected LorentzVector q;
@@ -49,7 +54,9 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected  float[] part_DC_c3x=new float[maxArrSize];
 	protected  float[] part_DC_c3y=new float[maxArrSize];
 	protected float[] part_p=new float[maxArrSize];
-
+	protected float[] part_beta=new float[maxArrSize];
+	protected float[] part_vz=new float[maxArrSize];
+	protected int[] part_charge=new int[maxArrSize];
 	
 	protected  int[] FTOFHit=new int[maxArrSize];
 	protected  int[] FTOFSector=new int[maxArrSize];
@@ -122,6 +129,9 @@ protected void cleanArrays()
 	Arrays.fill(part_DC_c3x, (float)0.0);
 	Arrays.fill(part_DC_c3y, (float)0.0);
 	Arrays.fill(part_p, (float)0.0);
+	Arrays.fill(part_beta, (float)0.0);
+	Arrays.fill(part_vz, (float)0.0);
+	Arrays.fill(part_charge, 0);
 	Arrays.fill(FTOFHit, 0);
 	Arrays.fill(FTOFTime, (float)-1.0); 
 	Arrays.fill(FTOFPath, (float)-1.0); 
@@ -262,24 +272,33 @@ protected void cleanArrays()
 				}
 				
 				if (pid != 0) {
+					//for now only interested in pions and kaons
+					if(pid!=LundPID.Pion.lundCode() && pid!=LundPID.Kaon.lundCode())
+						continue;
 					float vx = eventBank.getFloat("vx", current_part);
 					float vy = eventBank.getFloat("vy", current_part);
 					float vz = eventBank.getFloat("vz", current_part);
 					float px = eventBank.getFloat("px", current_part);
 					float py = eventBank.getFloat("py", current_part);
 					float pz = eventBank.getFloat("pz", current_part);
+					float beta=eventBank.getFloat("beta", current_part);
+					
+					
+					
 					// System.out.println("pid: "+ pid +" pz: "+ pz +" status " + status + "
 					// chi2pid: " + chi2pid);
 					
-					///Stefan's vz cut is sector dependent. Here only rough
-					if(vz< -7 || vz>10)
-						continue;
+					//vertex cuts for hadrons? probably not...
+					//if(vz< -7 || vz>10)
+					//	continue;
 					
 					float mom = (float) Math.sqrt(px * px + py * py + pz * pz);
 					//the pindex of in the particle table should just be the index
 					this.part_p[current_part]=mom;
-				
+					this.part_beta[current_part]=beta;
+					part_vz[current_part]=vz;
 					MyParticle part = new MyParticle(pid, px, py, pz, vx, vy, vz);
+					part_charge[current_part]=part.charge();
 					part.FTOFsector=this.FTOFSector[current_part];
 					if(this.FTOFSector[current_part]>=0)
 					{
@@ -289,6 +308,7 @@ protected void cleanArrays()
 						//according to Stefan's code, this should be 10^7, but that makes beta too large, maybe speed of light is not in the right units
 						//part.beta=(float)Math.pow(10,1)*part.FTOFPath/(part.FTOFTime*speedOLight);
 						part.beta=part.FTOFPath/(part.FTOFTime*speedOLight);
+						System.out.println("beta computed: " + part.beta + " beta from bank " + beta);
 					}
 					else
 					{
@@ -296,6 +316,8 @@ protected void cleanArrays()
 						part.beta=-1;
 					}
 					part.m_chi2pid=chi2pid;
+					int myPid=this.stefanHadronPID(current_part,part);
+					part.PID=myPid;
 					physEvent.addParticle(part);
 				}
 
@@ -362,7 +384,7 @@ protected void cleanArrays()
 			//	System.out.println("electron mom: " + mom);
 				//trigger thresholds is 1.5 GeV
 				if (pid == LundPID.Electron.lundCode()  && mom>1.5) {					
-					if(!survivesStefanElectronCuts()) {
+					if(!survivesStefanElectronCuts(current_part)) {
 						continue;	
 					}
 					foundElectron=true;
@@ -402,7 +424,7 @@ protected void cleanArrays()
 		//REC:trajectory
 		
 		boolean ecFiducialCuts=EC_hit_position_fiducial_cut(partIndex);
-		boolean dcFiducialCuts=DC_hit_position_fiducial_cut(partIndex);
+		boolean dcFiducialCuts=DC_hit_position_fiducial_cut(partIndex,false,false);
 		boolean ecEnergyDeposit=EC_sampling_fraction_cut(partIndex);
 		boolean hasFtofHit=false;
 		if(this.FTOFHit[partIndex]>0)
@@ -413,13 +435,31 @@ protected void cleanArrays()
 		if(this.part_Cal_PCAL_E[partIndex]<0.06)
 			pcalECut=false;
 		
-		return ecFiducialCuts&&dcFiducialCuts&&ecEnergyDeposit&&hasFtofHit && pcalECut;
+		return (ecFiducialCuts && dcFiducialCuts && ecEnergyDeposit && hasFtofHit && pcalECut);
 	}
 	
-	int stefanHadronPID()
-	{
-			
-		return LundPID.Pion.lundCode();
+	int stefanHadronPID(int partIndex,MyParticle part)
+	{		
+		boolean isPos=false;
+		if(part.charge()>0)
+			isPos=true;
+		boolean dcFiducialCut=DC_hit_position_fiducial_cut(partIndex,true,isPos);
+	
+		int chargeFactor=(-1);
+		if(isPos)
+			chargeFactor=1;
+		
+		if(maximum_probability_cut(partIndex, (chargeFactor)*LundPID.Pion.lundCode(), 0.27, 99.73))
+			return LundPID.Pion.lundCode();
+		if(maximum_probability_cut(partIndex, (chargeFactor)*LundPID.Kaon.lundCode(), 0.27, 99.73))
+			return LundPID.Kaon.lundCode();
+		if(maximum_probability_cut(partIndex, (chargeFactor)*LundPID.Proton.lundCode(), 0.27, 99.73))
+			return LundPID.Proton.lundCode();
+		
+		
+		
+		//nothing identified
+		return 0;
 	}
 	
 	boolean DC_z_vertex_cut(int j, float vz){
@@ -498,13 +538,38 @@ protected void cleanArrays()
 		else return false;
 		}
 	 
-	boolean DC_hit_position_fiducial_cut(int j)
+	
+	//these cuts are obviously dependendent on inbending/outbending
+	boolean DC_hit_position_fiducial_cut(int j, boolean isHadron, boolean positive)
 	{
 		double Pival=Math.PI;
 		double angle = 60;
 		boolean cut[]=new boolean[3];
-		double height[]= {31,47,53};
-		double radius[]= {32,49,54};
+		
+		double heightElectron[]= {31,47,53};
+		double radiusElectron[]= {32,49,54};
+		
+		double heightHPlus[]= {19,38,69};
+		double radiusHPlus[]= {25,46,78};
+		
+		double heightHMinus[]= {27,37,41};
+		double radiusHMinus[]= {32,46,52};
+		
+		double height[]= heightHPlus;
+		double radius[]= radiusHPlus;
+		if(!isHadron)
+		{
+			height=heightElectron;
+			radius=radiusElectron;
+		}
+		if(isHadron&&!positive)
+		{
+			height=heightHMinus;
+			radius=radiusHMinus;
+		}
+		
+		
+		
 		
 		double x[]= {part_DC_c1x[j],part_DC_c2x[j],part_DC_c3x[j]};
 		double y[]= {part_DC_c1y[j],part_DC_c2y[j],part_DC_c3y[j]};	
@@ -555,8 +620,10 @@ protected void cleanArrays()
 					System.out.println("too many particles is trajectory bank: "+pindex);
 					break;
 				}
-				//entrance point to region 1
-				if(detID==12)
+				//entrance point to region 1, there are still multiple possible layers
+				//however, as long as we associate the correct time and path, that should be fine
+				//also, we can just take the beta from the bank...
+				if(detID==12)	
 				{
 					FTOFHit[pindex]=1;
 					FTOFSector[pindex]=sector;
@@ -719,6 +786,547 @@ protected void cleanArrays()
 			}
 	
 			
+			///////////
+///////Stuff from Stefan for the 
+
+
+			// c) beta cuts
+
+			boolean prot_beta_cut(int j, int run){
+
+			  double prot_mean_p0[] = {0.99772, 0.999712, 1.002, 1.00341, 0.996638, 0.994877};
+			  double prot_mean_p1[] = {0.903685, 0.904014, 0.911304, 0.919944, 0.928512, 0.906204};
+			  double prot_sigma_p0[] = {0.00537923, 0.00175809, 0.00260941, 0.00474539, 0.00120785, 0.00436982};
+			  double prot_sigma_p1[] = {0.00699148, 0.012509, 0.0114863, 0.00858052, 0.0130581, 0.00874131};
+
+			  double sigma_range = 3;
+
+			  double mean = 0;
+			  double sigma = 0;
+			  double upper_lim = 0;
+			  double lower_lim = 0;
+
+			  for(int k = 0; k < 6; k++){  
+			    if(this.FTOFSector[j]-1 == k){
+			      mean = prot_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + prot_mean_p1[k]);
+			      sigma = prot_sigma_p0[k] + prot_sigma_p1[k]/Math.sqrt(part_p[j]);
+			      upper_lim = mean + sigma_range * sigma;
+			      lower_lim = mean - sigma_range * sigma;
+			    }
+			  }
+
+			  if(this.part_beta[j] <= upper_lim && part_beta[j] >= lower_lim) return true;
+			  else return false;
+			}
+
+		
+			boolean pip_beta_cut(int j, int run){
+
+			  double pip_mean_p0[] = {0.998123, 0.999355, 1.00116, 1.00181, 0.998036, 0.997051};
+			  double pip_mean_p1[] = {0.0198787, 0.0186465, 0.020179, 0.0158253, 0.0154023, 0.0194915};
+			  double pip_sigma_p0[] = {0.00704184, 0.00112775, -8.45517e-05, 0.00346458, 0.00266644, 0.00314696};
+			  double pip_sigma_p1[] = {0.00404813, 0.00984778, 0.0134949, 0.00843767, 0.00915269, 0.00921848};
+
+			  double sigma_range = 3;
+
+			  double mean = 0;
+			  double sigma = 0;
+			  double upper_lim = 0;
+			  double lower_lim = 0;
+
+			  for(int k = 0; k < 6; k++){  
+			    if(this.FTOFSector[j]-1 == k){
+			      mean = pip_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + pip_mean_p1[k]);
+			      sigma = pip_sigma_p0[k] + pip_sigma_p1[k]/Math.sqrt(part_p[j]);
+			      upper_lim = mean + sigma_range * sigma;
+			      lower_lim = mean - sigma_range * sigma;
+			    }
+			  }
+
+			  if(part_beta[j] <= upper_lim && part_beta[j] >= lower_lim) return true;
+			  else return false;
+			}
+
+			boolean pim_beta_cut(int j, int run){
+
+			  double pim_mean_p0[] = {0.998814, 1.00054, 1.00076, 1.0019, 1.00108, 0.998871};
+			  double pim_mean_p1[] = {0.0119921, 0.0123215, 0.0134271, 0.0134171, 0.0165288, 0.0117412};
+			  double pim_sigma_p0[] = {0.000383561, 0.000930479, 0.00291482, 0.00239035, 0.00298586, 0.00144327};
+			  double pim_sigma_p1[] = {0.00927645, 0.00851712, 0.00562522, 0.0064887, 0.00512879, 0.00766656};
+
+			  double sigma_range = 3;
+
+			  double mean = 0;
+			  double sigma = 0;
+			  double upper_lim = 0;
+			  double lower_lim = 0;
+
+			  for(int k = 0; k < 6; k++){  
+			    if(FTOFSector[j]-1 == k){
+			      mean = pim_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + pim_mean_p1[k]);
+			      sigma = pim_sigma_p0[k] + pim_sigma_p1[k]/Math.sqrt(part_p[j]);
+			      upper_lim = mean + sigma_range * sigma;
+			      lower_lim = mean - sigma_range * sigma;
+			    }
+			  }
+
+			  if(part_beta[j] <= upper_lim && part_beta[j] >= lower_lim) return true;
+			  else return false;
+			}
+
+			boolean Kp_beta_cut(int j, int run){
+
+			  double Kp_mean_p0[] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+			  double Kp_mean_p1[] = {0.24372, 0.24372, 0.24372, 0.24372, 0.24372, 0.24372};
+			  double Kp_sigma_p0[] = {0.00704184, 0.00112775, -8.45517e-05, 0.00346458, 0.00266644, 0.00314696};
+			  double Kp_sigma_p1[] = {0.00404813, 0.00984778, 0.0134949, 0.00843767, 0.00915269, 0.00921848};
+
+			  double sigma_range = 3;
+
+			  double mean = 0;
+			  double sigma = 0;
+			  double upper_lim = 0;
+			  double lower_lim = 0;
+
+			  for(int k = 0; k < 6; k++){  
+			    if(FTOFSector[j]-1 == k){
+			      mean = Kp_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + Kp_mean_p1[k]);
+			      sigma = Kp_sigma_p0[k] + Kp_sigma_p1[k]/Math.sqrt(part_p[j]);
+			      upper_lim = mean + sigma_range * sigma;
+			      lower_lim = mean - sigma_range * sigma;
+			    }
+			  }
+
+			  if(part_beta[j] <= upper_lim && part_beta[j] >= lower_lim) return true;
+			  else return false;
+			}
+
+			boolean Km_beta_cut(int j, int run){
+
+			  double Km_mean_p0[] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+			  double Km_mean_p1[] = {0.24372, 0.24372, 0.24372, 0.24372, 0.24372, 0.24372};
+			  double Km_sigma_p0[] = {0.000383561, 0.000930479, 0.00291482, 0.00239035, 0.00298586, 0.00144327};
+			  double Km_sigma_p1[] = {0.00927645, 0.00851712, 0.00562522, 0.0064887, 0.00512879, 0.00766656};
+
+			  double sigma_range = 3;
+
+			  double mean = 0;
+			  double sigma = 0;
+			  double upper_lim = 0;
+			  double lower_lim = 0;
+
+			  for(int k = 0; k < 6; k++){  
+			    if(FTOFSector[j]-1 == k){
+			      mean = Km_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + Km_mean_p1[k]);
+			      sigma = Km_sigma_p0[k] + Km_sigma_p1[k]/Math.sqrt(part_p[j]);
+			      upper_lim = mean + sigma_range * sigma;
+			      lower_lim = mean - sigma_range * sigma;
+			    }
+			  }
+
+			  if(part_beta[j] <= upper_lim && part_beta[j] >= lower_lim) return true;
+			  else return false;
+			}
+
+
+
+
+
+
+			boolean maximum_probability_cut(int j, int hypothesis, double conflvl, double anticonflvl){
+
+			  // possible hypotheses which will be tested
+			  //
+			  // proton: 2212    pip:  211     Kp:  321
+			  //                 pim: -211     Km: -321
+			  //
+			  // particle variables:
+			  
+			  double sector = FTOFSector[j];
+			  double charge = part_charge[j];
+			  double mom = part_p[j];
+			  double beta = part_beta[j];
+
+			  // //////////////////////////////////////////////////////////////////////////////////////////////////
+			  // mean value and resolution for beta as a function of p for the different sectors
+
+			  double prot_mean_p0[] = {0.99772, 0.999712, 1.002, 1.00341, 0.996638, 0.994877};
+			  double prot_mean_p1[] = {0.903685, 0.904014, 0.911304, 0.919944, 0.928512, 0.906204};
+			  double prot_sigma_p0[] = {0.00537923, 0.00175809, 0.00260941, 0.00474539, 0.00120785, 0.00436982};
+			  double prot_sigma_p1[] = {0.00699148, 0.012509, 0.0114863, 0.00858052, 0.0130581, 0.00874131};
+
+			  double pip_mean_p0[] = {0.998123, 0.999355, 1.00116, 1.00181, 0.998036, 0.997051};
+			  double pip_mean_p1[] = {0.0198787, 0.0186465, 0.020179, 0.0158253, 0.0154023, 0.0194915};
+			  double pip_sigma_p0[] = {0.00704184, 0.00112775, -8.45517e-05, 0.00346458, 0.00266644, 0.00314696};
+			  double pip_sigma_p1[] = {0.00404813, 0.00984778, 0.0134949, 0.00843767, 0.00915269, 0.00921848};
+
+			  double Kp_mean_p0[] = {1.00232, 1.0043, 1.0051, 1.01004, 1.00296, 1.00061};
+			  double Kp_mean_p1[] = {0.237862, 0.25333, 0.256296, 0.26653, 0.251025, 0.232755};
+			  double Kp_sigma_p0[] = {0.00704184, 0.00112775, -8.45517e-05, 0.00346458, 0.00266644, 0.00314696};   // copied from pip
+			  double Kp_sigma_p1[] = {0.00404813, 0.00984778, 0.0134949, 0.00843767, 0.00915269, 0.00921848};      // copied from pip
+
+			  double pim_mean_p0[] = {0.998814, 1.00054, 1.00076, 1.0019, 1.00108, 0.998871};
+			  double pim_mean_p1[] = {0.0119921, 0.0123215, 0.0134271, 0.0134171, 0.0165288, 0.0117412};
+			  double pim_sigma_p0[] = {0.000383561, 0.000930479, 0.00291482, 0.00239035, 0.00298586, 0.00144327};
+			  double pim_sigma_p1[] = {0.00927645, 0.00851712, 0.00562522, 0.0064887, 0.00512879, 0.00766656};
+
+			  double Km_mean_p0[] = {0.997236, 1.00323, 1.00473, 1.00571, 0.999167, 1.00404};
+			  double Km_mean_p1[] = {0.228521, 0.244687, 0.257147, 0.246568, 0.232191, 0.257002};
+			  double Km_sigma_p0[] = {0.000383561, 0.000930479, 0.00291482, 0.00239035, 0.00298586, 0.00144327};   // copied from pim
+			  double Km_sigma_p1[] =  {0.00927645, 0.00851712, 0.00562522, 0.0064887, 0.00512879, 0.00766656};     // copied from pim
+
+			  // //////////////////////////////////////////////////////////////////////////////////////////////////
+			  // population factors for the different particles (integrated over p)
+
+			  // intially no population weighting:
+
+			  double popfrac_proton = 1.0; 
+			  double popfrac_pip = 1.0;
+			  double popfrac_Kp = 1.0;
+			  double popfrac_pim = 1.0;
+			  double popfrac_Km = 1.0;
+
+			  // momentum dependent population factor:
+
+			  if(population_weighting == true){
+			    if(outbending == false){   // inbending (torus -1)  
+			      popfrac_proton = -0.46270 + 1.497000000*Math.pow(part_p[j],1) - 0.9120000000*Math.pow(part_p[j],2) + 0.242400000*Math.pow(part_p[j],3) - 0.0260900000*Math.pow(part_p[j],4) - 0.0009616000000*Math.pow(part_p[j],5) 
+			                                + 0.000520700*Math.pow(part_p[j],6) - 0.0000484100*Math.pow(part_p[j],7) + 0.000001559*Math.pow(part_p[j],8) + 0.0000000071*Math.pow(part_p[j],9) - 0.0000000008185*Math.pow(part_p[j],10); 
+			      popfrac_pip =     1.08600 - 0.739500000*Math.pow(part_p[j],1) + 0.3374000000*Math.pow(part_p[j],2) - 0.065160000*Math.pow(part_p[j],3) + 0.0060100000*Math.pow(part_p[j],4) - 0.0002440000000*Math.pow(part_p[j],5) 
+			                                + 0.000002776*Math.pow(part_p[j],6); 
+			      popfrac_Kp =      0.08236 - 0.091010000*Math.pow(part_p[j],1) + 0.0784700000*Math.pow(part_p[j],2) - 0.021870000*Math.pow(part_p[j],3) + 0.0023840000*Math.pow(part_p[j],4) - 0.0000307300000*Math.pow(part_p[j],5) 
+			                                - 0.000011330*Math.pow(part_p[j],6) + 0.0000005536*Math.pow(part_p[j],7); 
+
+			      popfrac_pim =     0.95340 + 0.021960000*Math.pow(part_p[j],1) - 0.0405300000*Math.pow(part_p[j],2) + 0.009071000*Math.pow(part_p[j],3) - 0.0006846000*Math.pow(part_p[j],4) + 0.0000155900000*Math.pow(part_p[j],5); 
+			      popfrac_Km =     -0.18360 + 0.714600000*Math.pow(part_p[j],1) - 0.7519000000*Math.pow(part_p[j],2) + 0.390900000*Math.pow(part_p[j],3) - 0.1085000000*Math.pow(part_p[j],4) + 0.0170200000000*Math.pow(part_p[j],5) 
+			                                - 0.001513000*Math.pow(part_p[j],6) + 0.0000708600*Math.pow(part_p[j],7) - 0.000001348*Math.pow(part_p[j],8); 
+			    }
+			    if(outbending == true){   // outbending (torus +1)
+			      popfrac_proton = -0.43870 + 1.5410000000*Math.pow(part_p[j],1)  - 0.21180000000*Math.pow(part_p[j],2)  - 1.0700000*Math.pow(part_p[j],3) + 0.95490000*Math.pow(part_p[j],4) - 0.38710000*Math.pow(part_p[j],5) 
+			                                + 0.0858300000*Math.pow(part_p[j],6)  - 0.00966400000*Math.pow(part_p[j],7)  + 0.0001328*Math.pow(part_p[j],8) +  0.0001076*Math.pow(part_p[j],9) - 0.00001395*Math.pow(part_p[j],10) 
+			                                + 0.0000007545*Math.pow(part_p[j],11) - 0.00000001582*Math.pow(part_p[j],12);  
+			      popfrac_pip =     0.90020 - 0.7225000000*Math.pow(part_p[j],1)  + 0.41450000000*Math.pow(part_p[j],2)  - 0.1149000*Math.pow(part_p[j],3) + 0.01728000*Math.pow(part_p[j],4) - 0.00132500*Math.pow(part_p[j],5) 
+			                                + 0.0000400800*Math.pow(part_p[j],6); 
+			      popfrac_Kp =      0.17180 - 0.1994000000*Math.pow(part_p[j],1)  + 0.11450000000*Math.pow(part_p[j],2)  - 0.0190200*Math.pow(part_p[j],3) + 0.00040970*Math.pow(part_p[j],4) + 0.00012380*Math.pow(part_p[j],5) 
+			                                - 0.0000070660*Math.pow(part_p[j],6); 
+
+			      popfrac_pim =     0.95950 + 0.0063400000*Math.pow(part_p[j],1) - 0.030890000000*Math.pow(part_p[j],2)  + 0.0052940*Math.pow(part_p[j],3) - 0.00024860*Math.pow(part_p[j],4);
+			      popfrac_Km =      0.02474 + 0.0132600000*Math.pow(part_p[j],1) + 0.024240000000*Math.pow(part_p[j],2)  - 0.0045600*Math.pow(part_p[j],3) + 0.00022150*Math.pow(part_p[j],4);
+			    }
+			  }
+
+
+			  if(charge > 0){
+			    if(hypothesis <= 0) return false;    // charge does not match with hypothesis
+
+			    for(int k = 0; k < 6; k++){  
+			      if(sector-1 == k){
+
+			        double mean_prot = prot_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + prot_mean_p1[k]);
+			        double sigma_prot = prot_sigma_p0[k] + prot_sigma_p1[k]/Math.sqrt(part_p[j]);
+			        double prob_prot = popfrac_proton * (1/(sigma_prot*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_prot)/sigma_prot, 2));
+			        double conf_prot = 100*(1.0 - org.apache.commons.math3.special.Erf.erf(Math.abs(beta - mean_prot)/sigma_prot/Math.sqrt(2.0))); 
+
+			      
+			        
+			        
+			        double mean_pip = pip_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + pip_mean_p1[k]);
+			        double sigma_pip = pip_sigma_p0[k] + pip_sigma_p1[k]/Math.sqrt(part_p[j]);
+			        double prob_pip = popfrac_pip * (1/(sigma_pip*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_pip)/sigma_pip, 2));
+			        double conf_pip = 100*(1.0 - org.apache.commons.math3.special.Erf.erf(Math.abs(beta - mean_pip)/sigma_pip/Math.sqrt(2.0))); 
+
+			        //double mean_Kp = Kp_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + Kp_mean_p1[k]);
+			        double mean_Kp = part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + Math.pow(0.493677,2));
+			        double sigma_Kp = Kp_sigma_p0[k] + Kp_sigma_p1[k]/Math.sqrt(part_p[j]);
+			        double prob_Kp = popfrac_Kp * (1/(sigma_Kp*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_Kp)/sigma_Kp, 2));
+			        double conf_Kp = 100*(1.0 - org.apache.commons.math3.special.Erf.erf(Math.abs(beta - mean_Kp)/sigma_Kp/Math.sqrt(2.0))); 
+			        //prob_Kp = 0;   // overwrite Kaons
+			        //conf_Kp = 0;   // overwrite Kaons
+
+			        if(prob_prot > prob_pip  && prob_prot > prob_Kp  && hypothesis == 2212 && conf_prot > conflvl  && conf_pip  < anticonflvl  && conf_Kp  < anticonflvl){ 
+			        //cout << "proton  -  probability: " << prob_prot << "     confidence: " << conf_prot << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_prot << " sigma: " << sigma_prot <<  " )" << endl;
+			        //cout << "pip     -  probability: " << prob_pip  << "     confidence: " << conf_pip  << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_pip  << " sigma: " << sigma_pip  <<  " )" << endl;
+			        //cout << "Kp      -  probability: " << prob_Kp   << "     confidence: " << conf_Kp   << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_Kp   << " sigma: " << sigma_Kp   <<  " )" << endl;
+			        //cout << endl;
+			        return true;
+			        }
+			        if(prob_pip  > prob_prot && prob_pip  > prob_Kp  && hypothesis == 211  && conf_pip  > conflvl  && conf_prot < anticonflvl  && conf_Kp  < anticonflvl){ 
+			        //cout << "proton  -  probability: " << prob_prot << "     confidence: " << conf_prot << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_prot << " sigma: " << sigma_prot <<  " )" << endl;
+			        //cout << "pip     -  probability: " << prob_pip  << "     confidence: " << conf_pip  << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_pip  << " sigma: " << sigma_pip  <<  " )" << endl;
+			        //cout << "Kp      -  probability: " << prob_Kp   << "     confidence: " << conf_Kp   << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_Kp   << " sigma: " << sigma_Kp   <<  " )" << endl;
+			        //cout << endl;
+			        return true;
+			        }
+			        if(prob_Kp   > prob_prot && prob_Kp   > prob_pip && hypothesis == 321  && conf_Kp   > conflvl  && conf_prot < anticonflvl  && conf_pip < anticonflvl){ 
+			        //cout << "proton  -  probability: " << prob_prot << "     confidence: " << conf_prot << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_prot << " sigma: " << sigma_prot <<  " )" << endl;
+			        //cout << "pip     -  probability: " << prob_pip  << "     confidence: " << conf_pip  << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_pip  << " sigma: " << sigma_pip  <<  " )" << endl;
+			        //cout << "Kp      -  probability: " << prob_Kp   << "     confidence: " << conf_Kp   << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_Kp   << " sigma: " << sigma_Kp   <<  " )" << endl;
+			        //cout << endl;
+			        return true;
+			        }
+			      }
+			    }
+			  }
+
+			  if(charge < 0){
+			    if(hypothesis >= 0) return false;    // charge does not match with hypothesis
+
+			    for(int k = 0; k < 6; k++){
+			      if(sector-1 == k){
+
+			        double mean_pim = pim_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + pim_mean_p1[k]);
+			        double sigma_pim = pim_sigma_p0[k] + pim_sigma_p1[k]/Math.sqrt(part_p[j]);
+			        double prob_pim = popfrac_pim * (1/(sigma_pim*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_pim)/sigma_pim, 2));
+			        double conf_pim = 100*(1.0 - org.apache.commons.math3.special.Erf.erf(Math.abs(beta - mean_pim)/sigma_pim/Math.sqrt(2.0))); 
+
+			        //double mean_Km = Km_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + Km_mean_p1[k]);
+			        double mean_Km = part_p[j] / Math.sqrt(Math.pow(part_p[j],2) +Math.pow(0.493677,2));
+			        double sigma_Km = Km_sigma_p0[k] + Km_sigma_p1[k]/Math.sqrt(part_p[j]);
+			        double prob_Km = popfrac_Km * (1/(sigma_Km*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_Km)/sigma_Km, 2));
+			        double conf_Km = 100*(1.0 - org.apache.commons.math3.special.Erf.erf(Math.abs(beta - mean_Km)/sigma_Km/Math.sqrt(2.0))); 
+			        //prob_Km = 0;  // overwrite Kaons
+			        //conf_Km = 0;  // overwrite Kaons
+
+			        if(prob_pim  > prob_Km  && hypothesis == -211  && conf_pim  > conflvl && conf_Km  < anticonflvl){
+			        //cout << "pim     -  probability: " << prob_pim  << "     confidence: " << conf_pim << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_pim << " sigma: " << sigma_pim  <<  " )" << endl;
+			        //cout << "Km      -  probability: " << prob_Km   << "     confidence: " << conf_Km  << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_Km  << " sigma: " << sigma_Km   <<  " )" << endl;
+			        //cout << endl;
+			        return true;
+			        }
+			        if(prob_Km   > prob_pim && hypothesis == -321  && conf_Km   > conflvl && conf_pim < anticonflvl){  
+			        //cout << "pim     -  probability: " << prob_pim  << "     confidence: " << conf_pim << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_pim << " sigma: " << sigma_pim  <<  " )" << endl;
+			        //cout << "Km      -  probability: " << prob_Km   << "     confidence: " << conf_Km  << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_Km  << " sigma: " << sigma_Km   <<  " )" << endl;
+			        //cout << endl;
+			        return true;
+			        }
+			      }
+			    }
+			  }
+
+			  return false;  // return false if no particle is clearly identified or if the charge is 0.
+			}
+
+
+			// g) delta vz cuts
+
+
 			
+			boolean pip_delta_vz_cut(int j){
+
+			  double mean = 0.5252;
+			  double sigma = 4.483;
+			  double dvz_min = mean - 3 * sigma;
+			  double dvz_max = mean + 3 * sigma;
+
+			  if(part_vz[j] > dvz_min && part_vz[j] < dvz_max) return true;
+			  else return false;
+			}
+
+			boolean pim_delta_vz_cut(int j){
+
+			  double mean = 0.54;
+			  double sigma = 4.699;
+			  double dvz_min = mean - 3 * sigma;
+			  double dvz_max = mean + 3 * sigma;
+
+			  if(part_vz[j] > dvz_min && part_vz[j] < dvz_max) return true;
+			  else return false;
+			}
+
+			boolean Kp_delta_vz_cut(int j){
+
+			  double mean = 0.5;
+			  double sigma = 4.429;
+			  double dvz_min = mean - 3 * sigma;
+			  double dvz_max = mean + 3 * sigma;
+
+			  if(part_vz[j] > dvz_min && part_vz[j] < dvz_max) return true;
+			  else return false;
+			}
+
+			boolean Km_delta_vz_cut(int j){
+
+			  double mean = 0.06038;
+			  double sigma = 3.984;
+			  double dvz_min = mean - 3 * sigma;
+			  double dvz_max = mean + 3 * sigma;
+
+			  if(part_vz[j] > dvz_min && part_vz[j]< dvz_max) return true;
+			  else return false;
+			}
+
+
+
+
+
+
+			boolean CD_maximum_probability_cut(int j, int hypothesis, double conflvl, double anticonflvl, int run){
+
+			  // possible hypotheses which will be tested
+			  //
+			  // proton: 2212    pip:  211     Kp:  321
+			  //                 pim: -211     Km: -321
+			  //
+			  // particle variables:
+			  
+			  double charge = part_charge[j];
+			  double mom = part_p[j];
+			  double beta = part_beta[j];
+
+			  // //////////////////////////////////////////////////////////////////////////////////////////////////
+			  // mean value and resolution for beta as a function of p for the different sectors
+
+
+			  double prot_mean_p0 = 0.0316745;
+			  double prot_mean_p1 = 0.964774;
+			  double prot_mean_p2 = 0.951388;
+			  double prot_sigma_p0 = -0.00271316;
+			  double prot_sigma_p1 = 0.0197528;
+
+			  double pip_mean_p0 = -3.2458;
+			  double pip_mean_p1 = 4.24197;
+			  double pip_mean_p2 = 0.00361836;
+			  double pip_sigma_p0 = -0.00201627;
+			  double pip_sigma_p1 = 0.0171322;
+
+			  double pim_mean_p0 = 0.924408;
+			  double pim_mean_p1 = 0.0726981;
+			  double pim_mean_p2 = 0.0842059;
+			  double pim_sigma_p0 = 0.00100331;
+			  double pim_sigma_p1 = 0.00882211;
+
+			  double Kp_mean_p0 = -0.0041;     // expected offset from pion offset
+			  double Kp_mean_p1 = 1.00000;
+			  double Kp_mean_p2 = 0.24372;       // lit. Kaon mass
+			  double Kp_sigma_p0 = -0.00201627;  // copied from pip
+			  double Kp_sigma_p1 = 0.0171322;    // copied from pip
+
+			  double Km_mean_p0 = -0.0041;     // expected offset from pion offset
+			  double Km_mean_p1 = 1.00000;
+			  double Km_mean_p2 = 0.24372;       // lit. Kaon mass
+			  double Km_sigma_p0 = 0.00100331;   // copied from pim
+			  double Km_sigma_p1 = 0.00882211;   // copied from pim
+
+
+			  // //////////////////////////////////////////////////////////////////////////////////////////////////
+			  // population factors for the different particles (integrated over p)
+
+			  // intially no population weighting:
+
+			  double popfrac_proton = 1.0; 
+			  double popfrac_pip = 1.0;
+			  double popfrac_Kp = 1.0;
+			  double popfrac_pim = 1.0;
+			  double popfrac_Km = 1.0;
+
+			  // momentum dependent population factor:
+
+			  if(population_weighting_CD == true){
+			    if(outbending == false){   // inbending (torus -1)  
+			      popfrac_proton =  1.27200 - 6.6060000000*Math.pow(part_p[j],1)  + 12.8100000000*Math.pow(part_p[j],2) - 10.61000*Math.pow(part_p[j],3) + 4.503000000*Math.pow(part_p[j],4) - 1.034000000*Math.pow(part_p[j],5) 
+			                                + 0.1225000000*Math.pow(part_p[j],6)  - 0.00588400000*Math.pow(part_p[j],7); 
+			      if(part_p[j] > 5.0) popfrac_proton = 0.001; 
+			      popfrac_pip =     0.87680 + 1.1150000000*Math.pow(part_p[j],1)  - 3.94000000000*Math.pow(part_p[j],2) + 3.679000*Math.pow(part_p[j],3) - 1.659000000*Math.pow(part_p[j],4) + 0.425800000*Math.pow(part_p[j],5)
+			                                - 0.0654700000*Math.pow(part_p[j],6)  + 0.00597200000*Math.pow(part_p[j],7) - 0.000298*Math.pow(part_p[j],8) + 0.000006271*Math.pow(part_p[j],9); 
+			      if(part_p[j] > 6.0) popfrac_pip = 0.998; 
+			      popfrac_Kp =      0.04908 + 0.0908700000*Math.pow(part_p[j],1)  - 0.032710000000*Math.pow(part_p[j],2) + 0.002760*Math.pow(part_p[j],3); 
+			      if(part_p[j] > 5.5) popfrac_Kp = 0.001; 
+			      popfrac_pim =     1.003000 - 0.324900000*Math.pow(part_p[j],1) + 0.184200000*Math.pow(part_p[j],2) - 0.0335700000*Math.pow(part_p[j],3) + 0.00164000*Math.pow(part_p[j],4) + 0.0001136*Math.pow(part_p[j],5)
+			                                 - 0.000009368*Math.pow(part_p[j],6);
+			      if(part_p[j] > 3.5) popfrac_pim = 0.999;  
+			      popfrac_Km =      0.065570 - 0.155300000*Math.pow(part_p[j],1) + 0.652600000*Math.pow(part_p[j],2) - 0.5292000000*Math.pow(part_p[j],3) + 0.15800000*Math.pow(part_p[j],4) - 0.0162400*Math.pow(part_p[j],5);
+			      if(part_p[j] > 3.5) popfrac_Km = 0.001;  
+			    }
+			    if(outbending == true){   // outbending (torus +1)
+			      popfrac_proton =  0.091220 - 0.774600000*Math.pow(part_p[j],1) + 3.121000000*Math.pow(part_p[j],2) - 3.1810000000*Math.pow(part_p[j],3) + 1.59300000*Math.pow(part_p[j],4) - 0.4622000*Math.pow(part_p[j],5) 
+			                                 + 0.081690000*Math.pow(part_p[j],6) - 0.008687000*Math.pow(part_p[j],7) + 0.0005144000*Math.pow(part_p[j],8) - 0.00001281*Math.pow(part_p[j],9); 
+			      if(part_p[j] > 8.0) popfrac_proton = 0.001; 
+			      popfrac_pip =     1.223000 - 1.400000000*Math.pow(part_p[j],1) + 0.708100000*Math.pow(part_p[j],2) - 0.1232000000*Math.pow(part_p[j],3) + 0.00514000*Math.pow(part_p[j],4) + 0.0005800*Math.pow(part_p[j],5) 
+			                                 - 0.000013630*Math.pow(part_p[j],6) - 0.000006621*Math.pow(part_p[j],7) + 0.0000003665*Math.pow(part_p[j],8); 
+			      if(part_p[j] > 7.0) popfrac_pip = 0.998; 
+			      popfrac_Kp =      -0.06797 + 0.294800000*Math.pow(part_p[j],1) - 0.137800000*Math.pow(part_p[j],2) + 0.0231100000*Math.pow(part_p[j],3) - 0.00133500*Math.pow(part_p[j],4); 
+			      if(part_p[j] > 6.0) popfrac_Kp = 0.001; 
+			      popfrac_pim =     0.93350 + 0.1171000000*Math.pow(part_p[j],1)  - 0.23500000000*Math.pow(part_p[j],2) - 0.254100*Math.pow(part_p[j],3) + 0.464600000*Math.pow(part_p[j],4) - 0.255500000*Math.pow(part_p[j],5)
+			                                + 0.0702800000*Math.pow(part_p[j],6)  - 0.01024000000*Math.pow(part_p[j],7) + 0.000606*Math.pow(part_p[j],8) + 0.000034870*Math.pow(part_p[j],9) - 0.000008172*Math.pow(part_p[j],10)
+			                                + 0.0000005102*Math.pow(part_p[j],11) - 0.00000001146*Math.pow(part_p[j],12); 
+			      if(part_p[j] > 4.0) popfrac_pim = 0.999; 
+			      popfrac_Km =      0.10210 - 0.2916000000*Math.pow(part_p[j],1)  + 0.72860000000*Math.pow(part_p[j],2) - 0.486800*Math.pow(part_p[j],3) + 0.124600000*Math.pow(part_p[j],4) - 0.011080000*Math.pow(part_p[j],5); 
+			      if(part_p[j] > 4.0) popfrac_Km = 0.001;  
+			    }
+			  }
+
+
+			  if(charge > 0){
+
+			    if(hypothesis <= 0) return false;    // charge does not match with hypothesis
+
+			    double mean_prot = prot_mean_p0 + prot_mean_p1 * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + prot_mean_p2);
+			    double sigma_prot = prot_sigma_p0 + prot_sigma_p1/Math.sqrt(part_p[j]);
+			    double prob_prot = popfrac_proton * (1/(sigma_prot*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_prot)/sigma_prot, 2));
+			    double conf_prot = 100*(1.0 - org.apache.commons.math3.special.Erf.erf(Math.abs(beta - mean_prot)/sigma_prot/Math.sqrt(2.0))); 
+
+			    double mean_pip = pip_mean_p0 + pip_mean_p1 * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + pip_mean_p2);
+			    double sigma_pip = pip_sigma_p0 + pip_sigma_p1/Math.sqrt(part_p[j]);
+			    double prob_pip = popfrac_pip * (1/(sigma_pip*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_pip)/sigma_pip, 2));
+			    double conf_pip = 100*(1.0 - org.apache.commons.math3.special.Erf.erf(Math.abs(beta - mean_pip)/sigma_pip/Math.sqrt(2.0))); 
+
+			    double mean_Kp = Kp_mean_p0 + Kp_mean_p1 * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + Kp_mean_p2);
+			    double sigma_Kp = Kp_sigma_p0 + Kp_sigma_p1/Math.sqrt(part_p[j]);
+			    double prob_Kp = popfrac_Kp * (1/(sigma_Kp*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_Kp)/sigma_Kp, 2));
+			    double conf_Kp = 100*(1.0 - org.apache.commons.math3.special.Erf.erf(Math.abs(beta - mean_Kp)/sigma_Kp/Math.sqrt(2.0))); 
+
+			    if(prob_prot > prob_pip  && prob_prot > prob_Kp  && hypothesis == 2212 && conf_prot > conflvl  && conf_pip  < anticonflvl  && conf_Kp  < anticonflvl && part_p[j] > 0.3){ 
+			      //cout << "proton  -  probability: " << prob_prot << "     confidence: " << conf_prot << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_prot << " sigma: " << sigma_prot <<  " )" << endl;
+			      //cout << "pip     -  probability: " << prob_pip  << "     confidence: " << conf_pip  << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_pip  << " sigma: " << sigma_pip  <<  " )" << endl;
+			      //cout << "Kp      -  probability: " << prob_Kp   << "     confidence: " << conf_Kp   << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_Kp   << " sigma: " << sigma_Kp   <<  " )" << endl;
+			      //cout << endl;
+			      return true;
+			    }
+			    if(prob_pip  > prob_prot && prob_pip  > prob_Kp  && hypothesis == 211  && conf_pip  > conflvl  && conf_prot < anticonflvl  && conf_Kp  < anticonflvl && part_p[j] > 0.7){ 
+			      //cout << "proton  -  probability: " << prob_prot << "     confidence: " << conf_prot << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_prot << " sigma: " << sigma_prot <<  " )" << endl;
+			      //cout << "pip     -  probability: " << prob_pip  << "     confidence: " << conf_pip  << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_pip  << " sigma: " << sigma_pip  <<  " )" << endl;
+			      //cout << "Kp      -  probability: " << prob_Kp   << "     confidence: " << conf_Kp   << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_Kp   << " sigma: " << sigma_Kp   <<  " )" << endl;
+			      //cout << endl;
+			      return true;
+			    }
+			    if(prob_Kp   > prob_prot && prob_Kp   > prob_pip && hypothesis == 321  && conf_Kp   > conflvl  && conf_prot < anticonflvl  && conf_pip < anticonflvl && part_p[j] > 0.7){ 
+			      //cout << "proton  -  probability: " << prob_prot << "     confidence: " << conf_prot << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_prot << " sigma: " << sigma_prot <<  " )" << endl;
+			      //cout << "pip     -  probability: " << prob_pip  << "     confidence: " << conf_pip  << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_pip  << " sigma: " << sigma_pip  <<  " )" << endl;
+			      //cout << "Kp      -  probability: " << prob_Kp   << "     confidence: " << conf_Kp   << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_Kp   << " sigma: " << sigma_Kp   <<  " )" << endl;
+			      //cout << endl;
+			      return true;
+			    }
+			  }
+
+			  if(charge < 0){
+
+			    if(hypothesis >= 0) return false;    // charge does not match with hypothesis
+
+			    double mean_pim = pim_mean_p0 + pim_mean_p1 * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + pim_mean_p2);
+			    double sigma_pim = pim_sigma_p0 + pim_sigma_p1/Math.sqrt(part_p[j]);
+			    double prob_pim = popfrac_pim * (1/(sigma_pim*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_pim)/sigma_pim, 2));
+			    double conf_pim = 100*(1.0 - (Math.abs(beta - mean_pim)/sigma_pim/Math.sqrt(2.0))); 
+
+			    double mean_Km = Km_mean_p0 + Km_mean_p1 * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + Km_mean_p2);
+			    double sigma_Km = Km_sigma_p0 + Km_sigma_p1/Math.sqrt(part_p[j]);
+			    double prob_Km = popfrac_Km * (1/(sigma_Km*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_Km)/sigma_Km, 2));
+			    double conf_Km = 100*(1.0 - org.apache.commons.math3.special.Erf.erf(Math.abs(beta - mean_Km)/sigma_Km/Math.sqrt(2.0))); 
+
+			    if(prob_pim  > prob_Km  && hypothesis == -211  && conf_pim  > conflvl && conf_Km  < anticonflvl && part_p[j] > 0.7){
+			      //cout << "pim     -  probability: " << prob_pim  << "     confidence: " << conf_pim << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_pim << " sigma: " << sigma_pim  <<  " )" << endl;
+			      //cout << "Km      -  probability: " << prob_Km   << "     confidence: " << conf_Km  << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_Km  << " sigma: " << sigma_Km   <<  " )" << endl;
+			      //cout << endl;
+			      return true;
+			    }
+			    if(prob_Km   > prob_pim && hypothesis == -321  && conf_Km   > conflvl && conf_pim < anticonflvl && part_p[j] > 0.7){  
+			      //cout << "pim     -  probability: " << prob_pim  << "     confidence: " << conf_pim << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_pim << " sigma: " << sigma_pim  <<  " )" << endl;
+			      //cout << "Km      -  probability: " << prob_Km   << "     confidence: " << conf_Km  << "     ( mom: " << mom << " beta:" << beta << " mean: " << mean_Km  << " sigma: " << sigma_Km   <<  " )" << endl;
+			      //cout << endl;
+			      return true;
+			    }
+			  }
+
+			  return false;  // return false if no particle is clearly identified or if the charge is 0.
+			}
 
 }

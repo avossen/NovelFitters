@@ -19,7 +19,8 @@ public class MyParticle extends Particle {
 	public float FTOFPath;
 	public float FTOFTime;
 	public int FTOFsector;
-	
+	//0 means no PID
+	public int PID;
 	public MyParticle(int pid,float px,float py, float pz, float vx, float vy,float vz)
 	{	
 		super(pid,px,py,pz,vx,vy,vz);
