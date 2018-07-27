@@ -444,18 +444,27 @@ protected void cleanArrays()
 		if(part.charge()>0)
 			isPos=true;
 		boolean dcFiducialCut=DC_hit_position_fiducial_cut(partIndex,true,isPos);
-	
+		if(!dcFiducialCut)
+			return 0;
 		int chargeFactor=(-1);
 		if(isPos)
 			chargeFactor=1;
 		
 		if(maximum_probability_cut(partIndex, (chargeFactor)*LundPID.Pion.lundCode(), 0.27, 99.73))
-			return LundPID.Pion.lundCode();
+		{
+			if((isPos && pip_delta_vz_cut(partIndex)) || (!isPos && pim_delta_vz_cut(partIndex)))
+				return LundPID.Pion.lundCode();
+		}
 		if(maximum_probability_cut(partIndex, (chargeFactor)*LundPID.Kaon.lundCode(), 0.27, 99.73))
-			return LundPID.Kaon.lundCode();
+		{
+			if((isPos && Kp_delta_vz_cut(partIndex)) || (!isPos && Km_delta_vz_cut(partIndex)))
+				return LundPID.Kaon.lundCode();
+		}
 		if(maximum_probability_cut(partIndex, (chargeFactor)*LundPID.Proton.lundCode(), 0.27, 99.73))
-			return LundPID.Proton.lundCode();
-		
+		{
+			if((isPos &&  prot_delta_vz_cut(partIndex)) || (!isPos && prot_delta_vz_cut(partIndex)))
+				return LundPID.Proton.lundCode();
+		}
 		
 		
 		//nothing identified
@@ -1109,7 +1118,16 @@ protected void cleanArrays()
 
 			// g) delta vz cuts
 
+			boolean prot_delta_vz_cut(int j){
 
+				  double mean = 0.4543;
+				  double sigma = 4.558;
+				  double dvz_min = mean - 3 * sigma;
+				  double dvz_max = mean + 3 * sigma;
+
+				  if(part_vz[j] > dvz_min && part_vz[j] < dvz_max) return true;
+				  else return false;
+				}
 			
 			boolean pip_delta_vz_cut(int j){
 
