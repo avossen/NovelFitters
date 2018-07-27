@@ -220,6 +220,7 @@ protected void cleanArrays()
 		m_event=event;
 		
 		boolean loadedDC=this.loadDCInfo();
+	
 		boolean loadedFTOF=this.loadFTOF();
 		boolean loadedCal=this.loadCalInfo();
 		
@@ -229,10 +230,12 @@ protected void cleanArrays()
 				throw new Exception("bank missing");
 			}
 			HipoDataBank eventBank = (HipoDataBank) event.getBank(bankName); // load particle bank
+			//System.out.println("check for electron");
 			if(!findScatteredElectron(eventBank))
 			{
 				throw new Exception("no electron");
 			}
+			System.out.println("got electron");
 			PhysicsEvent physEvent = new PhysicsEvent();
 			
 			//if(eventBank.rows()>=maxArrSize)
@@ -300,6 +303,7 @@ protected void cleanArrays()
 					MyParticle part = new MyParticle(pid, px, py, pz, vx, vy, vz);
 					part_charge[current_part]=part.charge();
 					part.FTOFsector=this.FTOFSector[current_part];
+					System.out.println("ftofsector:  " + FTOFSector[current_part]);
 					if(this.FTOFSector[current_part]>=0)
 					{
 						part.FTOFTime=this.FTOFTime[current_part]-this.electronTime;
@@ -376,17 +380,20 @@ protected void cleanArrays()
 				///Stefan's vz cut is sector dependent. Here only rough
 				if(!DC_z_vertex_cut(current_part,vz))
 					continue;
-			
+		//	System.out.println("after vertex cut");
 				
 				float mom = (float) Math.sqrt(px * px + py * py + pz * pz);
 				//the pindex of in the particle table should just be the index
 				this.part_p[current_part]=mom;
 			//	System.out.println("electron mom: " + mom);
 				//trigger thresholds is 1.5 GeV
-				if (pid == LundPID.Electron.lundCode()  && mom>1.5) {					
+			//	if (pid == LundPID.Electron.lundCode()  && mom>1.5) {
+				if ( mom>1.5) {
+					//System.out.println("after mom cut");
 					if(!survivesStefanElectronCuts(current_part)) {
 						continue;	
 					}
+					System.out.println("found electron");
 					foundElectron=true;
 					if(mom>maxMom)
 					{
@@ -434,7 +441,9 @@ protected void cleanArrays()
 		boolean pcalECut=true;
 		if(this.part_Cal_PCAL_E[partIndex]<0.06)
 			pcalECut=false;
-		
+		if(dcFiducialCuts)
+			System.out.println("dc fid cuts!");
+		System.out.println("ec cut: " + ecFiducialCuts + " dc "+dcFiducialCuts + " ec energy "+ ecEnergyDeposit + " has ftof "+hasFtofHit+" pcal "+ pcalECut);
 		return (ecFiducialCuts && dcFiducialCuts && ecEnergyDeposit && hasFtofHit && pcalECut);
 	}
 	
@@ -584,13 +593,10 @@ protected void cleanArrays()
 		double y[]= {part_DC_c1y[j],part_DC_c2y[j],part_DC_c3y[j]};	
 		
 		int sec[]= {this.part_DC_sector[j]-1,this.part_DC_sector[j]-1,this.part_DC_sector[j]-1};
-		for(int i=0;i<2;i++)
+		for(int i=0;i<3;i++)
 		{
 		
-		if(sec[j]<0)
-		{
-			System.out.println("looking for DC hit position but didn't find pcal sector");
-		}
+		
 		double x1_rot = y[i] * Math.sin(sec[i]*60.0*Pival/180) + x[i] * Math.cos(sec[i]*60.0*Pival/180);
 		double y1_rot = y[i] * Math.cos(sec[i]*60.0*Pival/180) - x[i]* Math.sin(sec[i]*60.0*Pival/180);
 		double slope = 1/Math.tan(0.5*angle*Pival/180);
@@ -636,6 +642,7 @@ protected void cleanArrays()
 				{
 					FTOFHit[pindex]=1;
 					FTOFSector[pindex]=sector;
+				//	System.out.println("setting ftof sector for " +pindex + " to "+ sector);
 					FTOFTime[pindex]=time;
 					FTOFPath[pindex]=path;
 				}
@@ -659,7 +666,7 @@ protected void cleanArrays()
 		String bankName="REC::Traj";
 		//needed to get DC sector
 		String bankName2="TimeBasedTrkg::TBTracks";
-		if (!(m_event.hasBank(bankName)&&m_event.hasBank(bankName2) )) {
+		if (!(m_event.hasBank(bankName) && m_event.hasBank(bankName2) )) {
 			//System.out.println("couldn't find bank" + bankName);
 			return false;
 		}
@@ -670,9 +677,12 @@ protected void cleanArrays()
 			HipoDataBank trkBank = (HipoDataBank) m_event.getBank(bankName2);
 			
 			
-			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
-				int sector = eventBank.getInt("sector", current_part);
+			for (int current_part = 0; current_part < trkBank.rows(); current_part++) {
+				int sector = trkBank.getInt("sector", current_part);
+				int id = trkBank.getInt("id", current_part);
 				this.trkSectors[current_part]=sector;
+				//System.out.println("Trk " + current_part + " sector: "+sector);
+				
 			}
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
 				//System.out.println("get pid");
@@ -688,6 +698,7 @@ protected void cleanArrays()
 				}
 				
 				part_DC_sector[pindex]=trkSectors[index];
+				//System.out.println("got index " + index + " sector: " + trkSectors[index]);
 				//entrance point to region 1
 				if(detID==12)
 				{
@@ -709,9 +720,9 @@ protected void cleanArrays()
 			if(detID==36)
 			{
 					float x = eventBank.getFloat("x", current_part);
-					part_DC_c2x[pindex]=x;
+					part_DC_c3x[pindex]=x;
 					float y = eventBank.getFloat("y", current_part);
-					part_DC_c2y[pindex]=y;
+					part_DC_c3y[pindex]=y;
 					
 					//counter++;
 				}
