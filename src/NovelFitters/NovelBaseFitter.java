@@ -235,7 +235,7 @@ protected void cleanArrays()
 			{
 				throw new Exception("no electron");
 			}
-			System.out.println("got electron");
+			//System.out.println("got electron");
 			PhysicsEvent physEvent = new PhysicsEvent();
 			
 			//if(eventBank.rows()>=maxArrSize)
@@ -276,8 +276,9 @@ protected void cleanArrays()
 				
 				if (pid != 0) {
 					//for now only interested in pions and kaons
-					if(pid!=LundPID.Pion.lundCode() && pid!=LundPID.Kaon.lundCode())
+					if(Math.abs(pid)!=LundPID.Pion.lundCode() && Math.abs(pid)!=LundPID.Kaon.lundCode())
 						continue;
+					
 					float vx = eventBank.getFloat("vx", current_part);
 					float vy = eventBank.getFloat("vy", current_part);
 					float vz = eventBank.getFloat("vz", current_part);
@@ -303,7 +304,7 @@ protected void cleanArrays()
 					MyParticle part = new MyParticle(pid, px, py, pz, vx, vy, vz);
 					part_charge[current_part]=part.charge();
 					part.FTOFsector=this.FTOFSector[current_part];
-					System.out.println("ftofsector:  " + FTOFSector[current_part]);
+					//System.out.println("ftofsector:  " + FTOFSector[current_part]);
 					if(this.FTOFSector[current_part]>=0)
 					{
 						part.FTOFTime=this.FTOFTime[current_part]-this.electronTime;
@@ -311,8 +312,9 @@ protected void cleanArrays()
 						float speedOLight=(float)29.9792; //in cm per ns as per units in hip bank
 						//according to Stefan's code, this should be 10^7, but that makes beta too large, maybe speed of light is not in the right units
 						//part.beta=(float)Math.pow(10,1)*part.FTOFPath/(part.FTOFTime*speedOLight);
-						part.beta=part.FTOFPath/(part.FTOFTime*speedOLight);
-						System.out.println("beta computed: " + part.beta + " beta from bank " + beta);
+						part.beta=beta; 
+						/// this is the computed one, but there seems to be somthing wrongpart.FTOFPath/(part.FTOFTime*speedOLight);
+						//System.out.println("beta computed: " + part.beta + " beta from bank " + beta);
 					}
 					else
 					{
@@ -322,6 +324,9 @@ protected void cleanArrays()
 					part.m_chi2pid=chi2pid;
 					int myPid=this.stefanHadronPID(current_part,part);
 					part.PID=myPid;
+					if(part.PID==0)
+						continue;
+					//System.out.println("pid: " + pid + " stefan's id "+myPid);
 					physEvent.addParticle(part);
 				}
 
@@ -393,7 +398,7 @@ protected void cleanArrays()
 					if(!survivesStefanElectronCuts(current_part)) {
 						continue;	
 					}
-					System.out.println("found electron");
+					//System.out.println("found electron");
 					foundElectron=true;
 					if(mom>maxMom)
 					{
@@ -441,9 +446,9 @@ protected void cleanArrays()
 		boolean pcalECut=true;
 		if(this.part_Cal_PCAL_E[partIndex]<0.06)
 			pcalECut=false;
-		if(dcFiducialCuts)
-			System.out.println("dc fid cuts!");
-		System.out.println("ec cut: " + ecFiducialCuts + " dc "+dcFiducialCuts + " ec energy "+ ecEnergyDeposit + " has ftof "+hasFtofHit+" pcal "+ pcalECut);
+//		if(dcFiducialCuts)
+//			System.out.println("dc fid cuts!");
+//		System.out.println("ec cut: " + ecFiducialCuts + " dc "+dcFiducialCuts + " ec energy "+ ecEnergyDeposit + " has ftof "+hasFtofHit+" pcal "+ pcalECut);
 		return (ecFiducialCuts && dcFiducialCuts && ecEnergyDeposit && hasFtofHit && pcalECut);
 	}
 	
@@ -462,17 +467,17 @@ protected void cleanArrays()
 		if(maximum_probability_cut(partIndex, (chargeFactor)*LundPID.Pion.lundCode(), 0.27, 99.73))
 		{
 			if((isPos && pip_delta_vz_cut(partIndex)) || (!isPos && pim_delta_vz_cut(partIndex)))
-				return LundPID.Pion.lundCode();
+				return (chargeFactor)*LundPID.Pion.lundCode();
 		}
 		if(maximum_probability_cut(partIndex, (chargeFactor)*LundPID.Kaon.lundCode(), 0.27, 99.73))
 		{
 			if((isPos && Kp_delta_vz_cut(partIndex)) || (!isPos && Km_delta_vz_cut(partIndex)))
-				return LundPID.Kaon.lundCode();
+				return (chargeFactor)*LundPID.Kaon.lundCode();
 		}
 		if(maximum_probability_cut(partIndex, (chargeFactor)*LundPID.Proton.lundCode(), 0.27, 99.73))
 		{
 			if((isPos &&  prot_delta_vz_cut(partIndex)) || (!isPos && prot_delta_vz_cut(partIndex)))
-				return LundPID.Proton.lundCode();
+				return (chargeFactor)*LundPID.Proton.lundCode();
 		}
 		
 		
@@ -557,6 +562,8 @@ protected void cleanArrays()
 		}
 	 
 	
+	
+	
 	//these cuts are obviously dependendent on inbending/outbending
 	boolean DC_hit_position_fiducial_cut(int j, boolean isHadron, boolean positive)
 	{
@@ -610,6 +617,9 @@ protected void cleanArrays()
 		}
 		return (cut[0]&&cut[1]&&cut[2]);
 	}
+	
+	
+	
 	
 	boolean loadFTOF()
 	{
