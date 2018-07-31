@@ -34,7 +34,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected LorentzVector lv_beam;
 	protected LorentzVector lv_e;
 	protected String bankName;
-
+	protected String bankNameMC;
+	
 	protected static int maxArrSize=400;
 	//don't make the arrays static, since we will have several instances of the fitter running (e.g. data and mc)
 	protected  int[] part_Cal_PCAL_sector=new int[maxArrSize];
@@ -73,10 +74,12 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		m_isMC = isMC;
 		m_useMC = useMC;
 
-		if (useMC)
-			bankName = new String("MC::Particle");
-		else
-			bankName = new String("REC::Particle");
+		bankNameMC=new String("MC::Particle");
+		bankName = new String("REC::Particle");
+//		if (useMC)
+//			bankName = new String("MC::Particle");
+//		else
+//			bankName = new String("REC::Particle");
 
 	}
 
@@ -199,17 +202,8 @@ protected void cleanArrays()
 		foundLambda=0;	
 		boolean banks_test = true; // check to see if the event has all of the banks present
 		
-		if(event.hasBank("REC::Track"))
-		{
-	//	System.out.println("found track bank");	
 		
-		}
-		else
-		{
-			//System.out.println("nope...");
-		}
-		
-		if (!(event.hasBank(bankName))) {
+		if (!(event.hasBank(bankName)) &&( !m_useMC ||  event.hasBank(bankNameMC)  )   ) {
 			banks_test = false;
 			//System.out.println("couldn't find bank" + bankName);
 		}
@@ -230,6 +224,9 @@ protected void cleanArrays()
 				throw new Exception("bank missing");
 			}
 			HipoDataBank eventBank = (HipoDataBank) event.getBank(bankName); // load particle bank
+			HipoDataBank eventBankMC =null;
+			if(m_useMC)
+				eventBankMC=(HipoDataBank) event.getBank(bankNameMC);
 			//System.out.println("check for electron");
 			if(!findScatteredElectron(eventBank))
 			{
@@ -247,6 +244,7 @@ protected void cleanArrays()
 					break;
 				//System.out.println("get pid");
 				int pid = eventBank.getInt("pid", current_part);
+				
 				//System.out.println("get status");
 				int status=-1;
 				float chi2pid=-1;
@@ -275,7 +273,9 @@ protected void cleanArrays()
 				}
 				
 				if (pid != 0) {
-					//for now only interested in pions and kaons
+					//for now only interested in pions and kaons. But use all particles in the MC 
+					// that means that a particle identified as a pion might loose its MC partner if that is not a pion
+					
 					if(Math.abs(pid)!=LundPID.Pion.lundCode() && Math.abs(pid)!=LundPID.Kaon.lundCode())
 						continue;
 					
@@ -287,7 +287,26 @@ protected void cleanArrays()
 					float pz = eventBank.getFloat("pz", current_part);
 					float beta=eventBank.getFloat("beta", current_part);
 					
-					
+					float vxMC = 0;
+					float vyMC = 0;
+					float vzMC = 0;
+					float pxMC = 0;
+					float pyMC = 0;
+					float pzMC = 0;
+					float betaMC=0;
+					int pidMC=0;
+					if(m_useMC)
+					{
+						
+						 vxMC = eventBankMC.getFloat("vx", current_part);
+						 vyMC = eventBankMC.getFloat("vy", current_part);
+						 vzMC = eventBankMC.getFloat("vz", current_part);
+						 pxMC = eventBankMC.getFloat("px", current_part);
+						 pyMC = eventBankMC.getFloat("py", current_part);
+						 pzMC = eventBankMC.getFloat("pz", current_part);
+						 betaMC=eventBankMC.getFloat("beta", current_part);
+						 pidMC = eventBankMC.getInt("pid", current_part);
+					}
 					
 					// System.out.println("pid: "+ pid +" pz: "+ pz +" status " + status + "
 					// chi2pid: " + chi2pid);
@@ -301,7 +320,16 @@ protected void cleanArrays()
 					this.part_p[current_part]=mom;
 					this.part_beta[current_part]=beta;
 					part_vz[current_part]=vz;
-					MyParticle part = new MyParticle(pid, px, py, pz, vx, vy, vz);
+					
+					MyParticle part = null;
+					//the idea of the below is that we only add particles to the MC events that 
+					//are accepted in the reconstruction. That way we can do the matching but don't store pairs that are unnceessary
+					//this would be done differently if we want to reconsruct 'true' MC asymmetries
+					if(!m_useMC)
+						part=new MyParticle(pid, px, py, pz, vx, vy, vz);
+					else
+						part=new MyParticle(pidMC,pxMC,pyMC,pzMC,vxMC,vyMC,vzMC);
+					
 					part_charge[current_part]=part.charge();
 					part.FTOFsector=this.FTOFSector[current_part];
 					//System.out.println("ftofsector:  " + FTOFSector[current_part]);
@@ -323,9 +351,15 @@ protected void cleanArrays()
 					}
 					part.m_chi2pid=chi2pid;
 					int myPid=this.stefanHadronPID(current_part,part);
-					part.PID=myPid;
-					if(part.PID==0)
+				
+					if(myPid==0)
 						continue;
+					//use reconstructed
+					if(!m_useMC)
+						part.PID=myPid;
+					else
+						part.PID=pidMC;
+					
 					//System.out.println("pid: " + pid + " stefan's id "+myPid);
 					physEvent.addParticle(part);
 				}
@@ -1057,8 +1091,7 @@ protected void cleanArrays()
 			        double prob_prot = popfrac_proton * (1/(sigma_prot*Math.sqrt(2*3.14159))) * Math.exp(-0.5 *Math.pow((beta - mean_prot)/sigma_prot, 2));
 			        double conf_prot = 100*(1.0 - org.apache.commons.math3.special.Erf.erf(Math.abs(beta - mean_prot)/sigma_prot/Math.sqrt(2.0))); 
 
-			      
-			        
+		       
 			        
 			        double mean_pip = pip_mean_p0[k] * part_p[j] / Math.sqrt(Math.pow(part_p[j],2) + pip_mean_p1[k]);
 			        double sigma_pip = pip_sigma_p0[k] + pip_sigma_p1[k]/Math.sqrt(part_p[j]);
