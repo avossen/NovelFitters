@@ -29,13 +29,16 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected boolean population_weighting_CD=false;
 	protected boolean outbending=false;
 	
+	protected int helicity;
 	protected int foundLambda;
 	protected LorentzVector q;
 	protected LorentzVector lv_beam;
 	protected LorentzVector lv_e;
 	protected String bankName;
 	protected String bankNameMC;
+	public static  boolean useStefanElectronCuts=false;
 	
+	public static  boolean useStefanHadronCuts=false;
 	protected static int maxArrSize=400;
 	//don't make the arrays static, since we will have several instances of the fitter running (e.g. data and mc)
 	protected  int[] part_Cal_PCAL_sector=new int[maxArrSize];
@@ -87,7 +90,11 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	{
 		return foundLambda;	
 	}
-	
+		
+	public int getBeamHelicity()
+	{
+		return helicity;
+	}
 	public double getQ2() {
 		return Q2;
 	}
@@ -139,7 +146,7 @@ protected void cleanArrays()
 	Arrays.fill(FTOFTime, (float)-1.0); 
 	Arrays.fill(FTOFPath, (float)-1.0); 
 	Arrays.fill(FTOFSector, -1);
-	
+	helicity=7;
 }
 
 	protected void computeKinematics(float px, float py, float pz) {
@@ -225,6 +232,8 @@ protected void cleanArrays()
 			}
 			HipoDataBank eventBank = (HipoDataBank) event.getBank(bankName); // load particle bank
 			HipoDataBank eventBankMC =null;
+			
+			
 			if(m_useMC)
 				eventBankMC=(HipoDataBank) event.getBank(bankNameMC);
 			//System.out.println("check for electron");
@@ -240,15 +249,23 @@ protected void cleanArrays()
 			
 			//go for the hadrons
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
+			//	if(eventBank.rows()>5)
+			//		System.out.println("num particles: " +eventBank.rows());
 				if(current_part>=maxArrSize)
+				{
+					System.out.println("max array size..");
 					break;
+				}
 				//System.out.println("get pid");
 				int pid = eventBank.getInt("pid", current_part);
 				
 				//System.out.println("get status");
 				int status=-1;
 				float chi2pid=-1;
+				
 				try {
+					helicity=getHelicity();
+					
 					//seems like mc does not have status or chi2pid
 					if(!m_isMC)
 					{
@@ -284,8 +301,9 @@ protected void cleanArrays()
 					float vz = eventBank.getFloat("vz", current_part);
 					float px = eventBank.getFloat("px", current_part);
 					float py = eventBank.getFloat("py", current_part);
-					float pz = eventBank.getFloat("pz", current_part);
+					float pz = eventBank.getFloat("pz", current_part);	
 					float beta=eventBank.getFloat("beta", current_part);
+				
 					
 					float vxMC = 0;
 					float vyMC = 0;
@@ -293,7 +311,7 @@ protected void cleanArrays()
 					float pxMC = 0;
 					float pyMC = 0;
 					float pzMC = 0;
-					float betaMC=0;
+				//	float betaMC=0;
 					int pidMC=0;
 					if(m_useMC)
 					{
@@ -304,7 +322,7 @@ protected void cleanArrays()
 						 pxMC = eventBankMC.getFloat("px", current_part);
 						 pyMC = eventBankMC.getFloat("py", current_part);
 						 pzMC = eventBankMC.getFloat("pz", current_part);
-						 betaMC=eventBankMC.getFloat("beta", current_part);
+						 //betaMC=eventBankMC.getFloat("beta", current_part);
 						 pidMC = eventBankMC.getInt("pid", current_part);
 					}
 					
@@ -341,6 +359,7 @@ protected void cleanArrays()
 						//according to Stefan's code, this should be 10^7, but that makes beta too large, maybe speed of light is not in the right units
 						//part.beta=(float)Math.pow(10,1)*part.FTOFPath/(part.FTOFTime*speedOLight);
 						part.beta=beta; 
+						//System.out.println("beta: " + beta);
 						/// this is the computed one, but there seems to be somthing wrongpart.FTOFPath/(part.FTOFTime*speedOLight);
 						//System.out.println("beta computed: " + part.beta + " beta from bank " + beta);
 					}
@@ -350,16 +369,21 @@ protected void cleanArrays()
 						part.beta=-1;
 					}
 					part.m_chi2pid=chi2pid;
-					int myPid=this.stefanHadronPID(current_part,part);
-				
-					if(myPid==0)
+					
+					int myPid=pid;
+					if(useStefanHadronCuts)
+					{
+						myPid=this.stefanHadronPID(current_part,part);
+					}
+					 if(myPid==0)
 						continue;
+					
 					//use reconstructed
 					if(!m_useMC)
 						part.PID=myPid;
 					else
 						part.PID=pidMC;
-					
+								
 					//System.out.println("pid: " + pid + " stefan's id "+myPid);
 					physEvent.addParticle(part);
 				}
@@ -387,6 +411,7 @@ protected void cleanArrays()
 		}
 		catch(Exception e)
 		{
+			//System.out.println("exception: "+ e.getMessage());
 			return new PhysicsEvent(this.m_beam);
 		}
 		
@@ -429,7 +454,7 @@ protected void cleanArrays()
 			//	if (pid == LundPID.Electron.lundCode()  && mom>1.5) {
 				if ( mom>1.5) {
 					//System.out.println("after mom cut");
-					if(!survivesStefanElectronCuts(current_part)) {
+					if(useStefanElectronCuts && !survivesStefanElectronCuts(current_part)) {
 						continue;	
 					}
 					//System.out.println("found electron");
@@ -497,7 +522,9 @@ protected void cleanArrays()
 		int chargeFactor=(-1);
 		if(isPos)
 			chargeFactor=1;
+
 		
+//		return (chargeFactor)*LundPID.Pion.lundCode();
 		if(maximum_probability_cut(partIndex, (chargeFactor)*LundPID.Pion.lundCode(), 0.27, 99.73))
 		{
 			if((isPos && pip_delta_vz_cut(partIndex)) || (!isPos && pim_delta_vz_cut(partIndex)))
@@ -704,6 +731,20 @@ protected void cleanArrays()
 	
 	}
 	
+	int getHelicity()
+	{
+		String bankName="REC::Event";
+		if(!m_event.hasBank(bankName))
+		{
+			return 7;
+		}
+		else
+		{
+			HipoDataBank eventBank = (HipoDataBank) m_event.getBank(bankName);
+			return eventBank.getByte("Helic",0);
+		}
+		
+	}
 	
 	boolean loadDCInfo()
 	{
