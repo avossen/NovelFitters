@@ -69,6 +69,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	
 	//local copy of the event, so we can use it in multiple methods
 	protected DataEvent m_event;
+	protected MyParticle scatteredElectron;
 	
 
 	public NovelBaseFitter(double beam, boolean isMC, boolean useMC) {
@@ -243,7 +244,7 @@ protected void cleanArrays()
 			}
 			//System.out.println("got electron");
 			PhysicsEvent physEvent = new PhysicsEvent();
-			
+			physEvent.addParticle(this.scatteredElectron);
 			//if(eventBank.rows()>=maxArrSize)
 			//	continue;
 			
@@ -385,6 +386,7 @@ protected void cleanArrays()
 						part.PID=pidMC;
 								
 					//System.out.println("pid: " + pid + " stefan's id "+myPid);
+					//System.out.println("Adding particle");
 					physEvent.addParticle(part);
 				}
 
@@ -407,6 +409,7 @@ protected void cleanArrays()
 				}
 
 			}
+			//System.out.println("returning phys event with " + physEvent.count() + " particles");
 			return physEvent;
 		}
 		catch(Exception e)
@@ -425,6 +428,10 @@ protected void cleanArrays()
 		float maxPx=0;
 		float maxPy=0;
 		float maxPz=0;
+		
+		float maxVx=0;
+		float maxVy=0;
+		float maxVz=0;
 	
 		for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
 			
@@ -457,6 +464,9 @@ protected void cleanArrays()
 					if(useStefanElectronCuts && !survivesStefanElectronCuts(current_part)) {
 						continue;	
 					}
+					//if we don't use stefan's cut, use default assignment
+					if(!useStefanElectronCuts && !(pid==LundPID.Electron.lundCode()))
+						continue;
 					//System.out.println("found electron");
 					foundElectron=true;
 					if(mom>maxMom)
@@ -465,7 +475,12 @@ protected void cleanArrays()
 						maxPx=px;
 						maxPy=py;
 						maxPz=pz;
+						
+						maxVx=vx;
+						maxVy=vy;
+						maxVz=vz;
 					}
+					
 					//take this electron to define FTOF start time
 					this.electronTime=this.FTOFTime[current_part];
 					// looks like the first one has the higher momentum, so probably the scattered
@@ -479,6 +494,8 @@ protected void cleanArrays()
 		}
 		if(foundElectron)
 		{
+			int pid=LundPID.Electron.lundCode();
+			this.scatteredElectron=new MyParticle(pid, maxPx, maxPy, maxPz, maxVx, maxVy, maxVz);
 			computeKinematics(maxPx, maxPy, maxPz);
 		}
 		return foundElectron;

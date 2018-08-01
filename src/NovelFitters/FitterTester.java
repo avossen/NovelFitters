@@ -57,7 +57,8 @@ public class FitterTester {
 	
 	public void analyze(String[] args) {
 		
-		
+		NovelBaseFitter.useStefanElectronCuts=false;
+		NovelBaseFitter.useStefanHadronCuts=false;
 		HipoDataSource reader = new HipoDataSource();
 		// define fitter class, argument is the beam energy (GeV)
 		 novel_fitter = new NovelBaseFitter(10.6,false,false);
@@ -70,8 +71,9 @@ public class FitterTester {
 		// positively charged particles (X+), negatively charged particles (X-) or
 		// neutral
 		// particles (Xn)
+		//EventFilter filter = new EventFilter("Xn");
 		//EventFilter filter = new EventFilter("11:X+:X-:Xn");
-		EventFilter filter = new EventFilter("11:X+:X-:Xn");
+		EventFilter filter = new EventFilter("11:+211:-211:X+:X-:Xn");
 		File folder = new File(args[0]);
 		File[] listOfFiles = folder.listFiles();
 		for (int iF = 0; iF < listOfFiles.length; iF++) {
@@ -99,9 +101,9 @@ public class FitterTester {
 						{
 							generic_EventMC = novel_fitterMC.getPhysicsEvent(event);
 						}
-						if(generic_Event.count()>0)
-							System.out.println("we have " +generic_Event.count());
+						
 						// novel_fitter.Walt);
+						//System.out.println("looking at event with " + generic_Event.count() + " particles ");
 						if (filter.isValid(generic_Event) == true) { // apply filter to current event
 							// look at all particles
 							System.out.println("we have " +generic_Event.count());
@@ -112,13 +114,13 @@ public class FitterTester {
 								if(sec<=0)
 									sec=6;
 								
-								System.out.println("sec: " + sec+ ", beta is " + part.beta);
+								//System.out.println("sec: " + sec+ ", beta is " + part.beta);
 								if(part.beta<10.0 && part.beta>-10.0)
 								{
 									
 									if(sec!=6)
 									{
-										System.out.println("fill with beta "+ part.beta);
+										//System.out.println("fill with beta "+ part.beta);
 									}
 								}
 								//System.out.println("time is: " + part.FTOFTime + " sector: " + part.FTOFsector);
