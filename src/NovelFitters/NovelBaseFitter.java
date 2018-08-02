@@ -266,6 +266,7 @@ protected void cleanArrays()
 				
 				try {
 					helicity=getHelicity();
+					//System.out.println("helicity: " + helicity);
 					
 					//seems like mc does not have status or chi2pid
 					if(!m_isMC)
