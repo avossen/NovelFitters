@@ -24,6 +24,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected double x;
 	protected double W;
 	protected double nu;
+	protected double y;
 	protected float electronTime;
 	protected boolean population_weighting=false;
 	protected boolean population_weighting_CD=false;
@@ -98,6 +99,10 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	}
 	public double getQ2() {
 		return Q2;
+	}
+	
+	public double getY() {
+		return y;
 	}
 
 	public double getX() {
@@ -174,6 +179,7 @@ protected void cleanArrays()
 		// since this is lv_target*q /m_p and the momentum of the target is zero, it is
 		// just the product of the energy parts, divided by m_p:
 		nu = lv_target.e() * q.e() / m_p;
+		y=lv_target.e() * q.e()/lv_beam.e();
 		// System.out.println("target x " + lv_target.px()+ " y: "+lv_target.py() + "
 		// pz: " +lv_target.pz() + " e: "+ lv_target.e() );
 		x = Q2 / (2 * m_p * nu);
