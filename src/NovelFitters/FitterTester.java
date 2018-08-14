@@ -148,6 +148,7 @@ public class FitterTester {
 				}
 			}
 		}
+		this.novel_fitter.saveHitHistograms();
 	}
 	
 }
