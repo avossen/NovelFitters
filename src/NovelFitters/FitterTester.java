@@ -57,8 +57,8 @@ public class FitterTester {
 	
 	public void analyze(String[] args) {
 		
-		NovelBaseFitter.useStefanElectronCuts=false;
-		NovelBaseFitter.useStefanHadronCuts=false;
+		NovelBaseFitter.useStefanElectronCuts=true;
+		NovelBaseFitter.useStefanHadronCuts=true;
 		HipoDataSource reader = new HipoDataSource();
 		// define fitter class, argument is the beam energy (GeV)
 		 novel_fitter = new NovelBaseFitter(10.6,false,false);
@@ -103,7 +103,8 @@ public class FitterTester {
 						}
 						
 						// novel_fitter.Walt);
-						//System.out.println("looking at event with " + generic_Event.count() + " particles ");
+						if(generic_Event.count()>2)
+							System.out.println("looking at event with " + generic_Event.count() + " particles ");
 						if (filter.isValid(generic_Event) == true) { // apply filter to current event
 							// look at all particles
 							System.out.println("we have " +generic_Event.count());

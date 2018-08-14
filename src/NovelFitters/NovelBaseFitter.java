@@ -38,6 +38,9 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected String bankName;
 	protected String bankNameMC;
 	public static  boolean useStefanElectronCuts=false;
+	//for rec software before June, we need to access timebasedtracks bank
+	//to get sector. After that it is in in REC::Tracks
+	public static boolean useTimeBasedTracks=false;
 	
 	public static  boolean useStefanHadronCuts=false;
 	protected static int maxArrSize=400;
@@ -775,24 +778,25 @@ protected void cleanArrays()
 		String bankName="REC::Traj";
 		//needed to get DC sector
 		String bankName2="TimeBasedTrkg::TBTracks";
-		if (!(m_event.hasBank(bankName) && m_event.hasBank(bankName2) )) {
+		if(!useTimeBasedTracks)
+			bankName2="REC::Track";
+		if (!(m_event.hasBank(bankName) && m_event.hasBank(bankName2))) {
 			//System.out.println("couldn't find bank" + bankName);
 			return false;
 		}
 		else
 		{
-		//	System.out.println("got trajectory");
+		//System.out.println("got trajectory or tracks");
 			HipoDataBank eventBank = (HipoDataBank) m_event.getBank(bankName);
 			HipoDataBank trkBank = (HipoDataBank) m_event.getBank(bankName2);
-			
-			
-			for (int current_part = 0; current_part < trkBank.rows(); current_part++) {
-				int sector = trkBank.getInt("sector", current_part);
-				int id = trkBank.getInt("id", current_part);
-				this.trkSectors[current_part]=sector;
-				//System.out.println("Trk " + current_part + " sector: "+sector);
 				
-			}
+			for (int current_part = 0; current_part < trkBank.rows(); current_part++) {
+					int sector = trkBank.getInt("sector", current_part);
+					int trkPIndex = trkBank.getInt("pindex", current_part);
+					this.trkSectors[trkPIndex]=sector;
+					//System.out.println("Trk " + current_part + " sector: "+sector);
+				}
+			
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
 				//System.out.println("get pid");
 				//index in the track bank
@@ -806,7 +810,7 @@ protected void cleanArrays()
 					break;
 				}
 				
-				part_DC_sector[pindex]=trkSectors[index];
+				part_DC_sector[pindex]=trkSectors[pindex];
 				//System.out.println("got index " + index + " sector: " + trkSectors[index]);
 				//entrance point to region 1
 				if(detID==12)
@@ -845,7 +849,6 @@ protected void cleanArrays()
 	
 	boolean loadCalInfo()
 	{
-		
 		String bankName="REC::Calorimeter";
 		if (!(m_event.hasBank(bankName))) {
 			//System.out.println("couldn't find bank" + bankName);
@@ -869,7 +872,7 @@ protected void cleanArrays()
 				float energy=eventBank.getFloat("energy",current_part);
 				if(layer==1)
 				{
-					calPindex[counter]=pindex;
+			//		calPindex[counter]=pindex;
 					int sector = eventBank.getInt("sector", current_part);
 					part_Cal_PCAL_sector[pindex]=sector;
 					float x = eventBank.getFloat("x", current_part);
