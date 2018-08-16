@@ -91,7 +91,7 @@ public class FitterTester {
 
 					while (reader.hasEvent() == true) { // cycle through events
 						// load next event in the hipo file
-						//System.out.println("new event----\n\n");
+					//	System.out.println("new event----\n\n");
 						HipoDataEvent event = (HipoDataEvent) reader.getNextEvent();
 						
 						// apply fitter to your data event
@@ -103,7 +103,7 @@ public class FitterTester {
 						}
 						
 						// novel_fitter.Walt);
-						if(generic_Event.count()>2)
+						if(generic_Event.count()>1)
 							System.out.println("looking at event with " + generic_Event.count() + " particles ");
 						if (filter.isValid(generic_Event) == true) { // apply filter to current event
 							// look at all particles

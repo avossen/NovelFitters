@@ -28,8 +28,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected double nu;
 	protected double y;
 	protected float electronTime;
-	protected boolean population_weighting = false;
-	protected boolean population_weighting_CD = false;
+	protected boolean population_weighting = true;
+	protected boolean population_weighting_CD = true;
 	protected boolean outbending = false;
 
 	protected int helicity;
@@ -246,7 +246,9 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		boolean loadedCal = this.loadCalInfo();
 
 		try {
-			if (!banks_test || !loadedDC || !loadedFTOF || !loadedCal) {
+			//we only care about loading the detector info if we use stefan's cuts
+			//otherwise all we need should be in the particle bank
+			if ((!banks_test) || ((useStefanElectronCuts || useStefanHadronCuts) &&(!loadedDC || !loadedFTOF || !loadedCal))) {
 				throw new Exception("bank missing");
 			}
 			HipoDataBank eventBank = (HipoDataBank) event.getBank(bankName); // load particle bank
@@ -456,7 +458,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				// chi2pid: " + chi2pid);
 
 				/// Stefan's vz cut is sector dependent. Here only rough
-				if (!DC_z_vertex_cut(current_part, vz))
+				if (useStefanElectronCuts&& !DC_z_vertex_cut(current_part, vz))
 					continue;
 				// System.out.println("after vertex cut");
 
@@ -466,7 +468,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				// System.out.println("electron mom: " + mom);
 				// trigger thresholds is 1.5 GeV
 				// if (pid == LundPID.Electron.lundCode() && mom>1.5) {
-				if (mom > 1.5) {
+				if (useStefanElectronCuts &&mom < 1.5) 
+					continue;
 					// System.out.println("after mom cut");
 					if (useStefanElectronCuts && !survivesStefanElectronCuts(current_part)) {
 						continue;
@@ -496,7 +499,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 					// pz);
 					// System.out.println("found electron num: " + numElectrons+" mom: "+mom);
 
-				}
+				
 			}
 		}
 		if (foundElectron) {
@@ -601,7 +604,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		// nothing identified
 		return 0;
 	}
-
+//for electron
 	boolean DC_z_vertex_cut(int j, float vz) {
 
 		double vz_min_sect[] = { -8, -8, -8, -10, -7, -7 };
