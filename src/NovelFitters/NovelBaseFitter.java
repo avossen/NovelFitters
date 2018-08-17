@@ -27,6 +27,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected double W;
 	protected double nu;
 	protected double y;
+	protected int runNumber;
+	protected int evtNumber;
 	protected float electronTime;
 	protected boolean population_weighting = true;
 	protected boolean population_weighting_CD = true;
@@ -114,7 +116,16 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	public double getQ2() {
 		return Q2;
 	}
+	
+	public int getRunNumber()
+	{
+		return runNumber;
+	}
 
+	public int getEvtNumber()
+	{
+		return evtNumber;
+	}
 	public double getY() {
 		return y;
 	}
@@ -262,6 +273,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 			}
 			// System.out.println("got electron");
 			PhysicsEvent physEvent = new PhysicsEvent();
+			this.scatteredElectron.PID=11;
 			physEvent.addParticle(this.scatteredElectron);
 			// if(eventBank.rows()>=maxArrSize)
 			// continue;
@@ -282,7 +294,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				float chi2pid = -1;
 
 				try {
-					helicity = getHelicity();
+					helicity = getHelicityAndSetRunEvtNumbers();
 					// System.out.println("helicity: " + helicity);
 
 					// seems like mc does not have status or chi2pid
@@ -778,12 +790,14 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 
 	}
 
-	int getHelicity() {
+	int getHelicityAndSetRunEvtNumbers() {
 		String bankName = "REC::Event";
 		if (!m_event.hasBank(bankName)) {
 			return 7;
 		} else {
 			HipoDataBank eventBank = (HipoDataBank) m_event.getBank(bankName);
+			runNumber=eventBank.getInt("NRUN",0);
+			evtNumber=eventBank.getInt("NEVENT",0);
 			return eventBank.getByte("Helic", 0);
 		}
 
