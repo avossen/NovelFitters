@@ -203,16 +203,18 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		// since this is lv_target*q /m_p and the momentum of the target is zero, it is
 		// just the product of the energy parts, divided by m_p:
 		nu = lv_target.e() * q.e() / m_p;
-		y = lv_target.e() * q.e() / lv_beam.e();
+		y = q.e() / lv_beam.e();
 		// System.out.println("target x " + lv_target.px()+ " y: "+lv_target.py() + "
 		// pz: " +lv_target.pz() + " e: "+ lv_target.e() );
 		x = Q2 / (2 * m_p * nu);
-		W = Math.sqrt(Q2 * (1 - x) / x);
+		W = Math.sqrt(m_p+Q2 * (1 - x) / x);
 		LorentzVector gN = new LorentzVector(q);
 		gN.add(lv_target);
 		// System.out.println("gN x " + gN.px()+ " y: "+gN.py() + " pz: " +gN.pz() + "
 		// e: "+ gN.e() );
 		Walt = gN.mass();
+		//System.out.println("W: " + W  + " Walt: "+ Walt);
+		
 		gNBoost = gN.boostVector();
 		gNBoost.negative();
 
