@@ -793,22 +793,41 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	}
 
 	int getHelicityAndSetRunEvtNumbers() {
-		String bankName = "REC::Event";
+		int helic=0;
+	
+		String bankName=new String();
+		if(this.m_isMC)
+			bankName="MC::Header";
+		else
+			bankName = "REC::Event";
 		if (!m_event.hasBank(bankName)) {
 			return 7;
-		} else {
+		} 
+		else {
 			HipoDataBank eventBank = (HipoDataBank) m_event.getBank(bankName);
-			runNumber=eventBank.getInt("NRUN",0);
-			evtNumber=eventBank.getInt("NEVENT",0);
-			return eventBank.getByte("Helic", 0);
+			if(this.m_isMC)
+			{
+				runNumber=eventBank.getInt("run",0);
+				evtNumber=eventBank.getInt("event",0);
+				helic= eventBank.getByte("helicity", 0);	
+			}
+			else
+			{
+				runNumber=eventBank.getInt("NRUN",0);
+				evtNumber=eventBank.getInt("NEVENT",0);
+				helic= eventBank.getByte("Helic", 0);
+			}
 		}
-
+		return helic;
+		
 	}
 
 	boolean loadDCInfo() {
 		String bankName = "REC::Traj";
 		// needed to get DC sector
 		String bankName2 = "TimeBasedTrkg::TBTracks";
+		int idToSector[]=new int[this.maxArrSize];
+		
 		if (!useTimeBasedTracks)
 			bankName2 = "REC::Track";
 		if (!(m_event.hasBank(bankName) && m_event.hasBank(bankName2))) {
@@ -821,8 +840,21 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 
 			for (int current_part = 0; current_part < trkBank.rows(); current_part++) {
 				int sector = trkBank.getInt("sector", current_part);
-				int trkPIndex = trkBank.getInt("pindex", current_part);
-				this.trkSectors[trkPIndex] = sector;
+				int trkPIndex=0;
+				if(!useTimeBasedTracks)
+				{
+					 
+					trkPIndex = trkBank.getInt("pindex", current_part);
+					this.trkSectors[trkPIndex] = sector;
+				}
+				else
+				{
+					//time based tracks have only id, which we have to check against the 
+					//id of the REC::Traj
+					trkPIndex = trkBank.getInt("id", current_part);
+					idToSector[trkPIndex]=sector;
+				}
+				
 				// System.out.println("Trk " + current_part + " sector: "+sector);
 			}
 
@@ -830,7 +862,12 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				// System.out.println("get pid");
 				// index in the track bank
 				int index = eventBank.getInt("index", current_part);
+				
 				int pindex = eventBank.getInt("pindex", current_part);
+				if(useTimeBasedTracks)
+				{
+					trkSectors[pindex]=idToSector[index];
+				}
 				int detID = eventBank.getInt("detId", current_part);
 
 				if (pindex >= maxArrSize) {
