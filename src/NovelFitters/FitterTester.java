@@ -49,7 +49,7 @@ public class FitterTester {
 			System.exit(0);
 		}
 		FitterTester tester = new FitterTester();
-		tester.isMC=false;
+		tester.isMC=true;
 		//analyzer.isMC=false;
 		tester.analyze(args);
 	}
@@ -57,8 +57,10 @@ public class FitterTester {
 	
 	public void analyze(String[] args) {
 		
-		NovelBaseFitter.useStefanElectronCuts=true;
-		NovelBaseFitter.useStefanHadronCuts=true;
+		NovelBaseFitter.useStefanElectronCuts=false;
+		NovelBaseFitter.useStefanHadronCuts=false;
+		NovelBaseFitter.useTimeBasedTracks=true;
+		
 		HipoDataSource reader = new HipoDataSource();
 		// define fitter class, argument is the beam energy (GeV)
 		 novel_fitter = new NovelBaseFitter(10.6,false,false);
@@ -101,7 +103,7 @@ public class FitterTester {
 						{
 							generic_EventMC = novel_fitterMC.getPhysicsEvent(event);
 						}
-						
+					//	System.out.println("helicity is "+ generic_Event.)
 						// novel_fitter.Walt);
 						if(generic_Event.count()>1)
 							System.out.println("looking at event with " + generic_Event.count() + " particles ");

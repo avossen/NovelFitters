@@ -807,9 +807,16 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 			HipoDataBank eventBank = (HipoDataBank) m_event.getBank(bankName);
 			if(this.m_isMC)
 			{
+			//	System.out.println("getting mc helicity");
 				runNumber=eventBank.getInt("run",0);
 				evtNumber=eventBank.getInt("event",0);
-				helic= eventBank.getByte("helicity", 0);	
+				float helicF= eventBank.getFloat("helicity", 0);	
+				if(helicF<0)
+					helic=-1;
+				else
+					helic=1;
+				
+			//	System.out.println("helic is  " + helic);
 			}
 			else
 			{
