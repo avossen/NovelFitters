@@ -41,6 +41,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected LorentzVector lv_e;
 	protected String bankName;
 	protected String bankNameMC;
+	public static boolean useStefanPIDCuts=false;
 	public static boolean useStefanElectronCuts = false;
 	// for rec software before June, we need to access timebasedtracks bank
 	// to get sector. After that it is in in REC::Tracks
@@ -245,6 +246,15 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		foundLambda = 0;
 		boolean banks_test = true; // check to see if the event has all of the banks present
 
+		//if we use the mc truth, we don't  do fiducial cuts etc...
+		if(m_useMC)
+		{
+			useStefanElectronCuts=false;
+			useStefanHadronCuts=false;
+			useStefanPIDCuts=false;
+		}
+		
+		
 		if (!(event.hasBank(bankName)) && (!m_useMC || event.hasBank(bankNameMC))) {
 			banks_test = false;
 			// System.out.println("couldn't find bank" + bankName);
@@ -268,7 +278,11 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 			HipoDataBank eventBankMC = null;
 
 			if (m_useMC)
+			{
 				eventBankMC = (HipoDataBank) event.getBank(bankNameMC);
+				//eventBank now points to evenBankMC
+				eventBank=eventBankMC;
+			}
 			// System.out.println("check for electron");
 			if (!findScatteredElectron(eventBank)) {
 				throw new Exception("no electron");
@@ -280,7 +294,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 			// if(eventBank.rows()>=maxArrSize)
 			// continue;
 
-			// go for the hadrons
+			// go for the hadrons-->since in the mc case this points now to the mc
+			//bank, we would run over all mc particles...
 			for (int current_part = 0; current_part < eventBank.rows(); current_part++) {
 				// if(eventBank.rows()>5)
 				// System.out.println("num particles: " +eventBank.rows());
@@ -319,41 +334,23 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 						continue;
 				}
 
-				if (pid != 0) {
+				//so either we get event builder PID or we use stefan's PID
+				if (pid != 0 || (useStefanHadronCuts && useStefanPIDCuts) ) {
 					// for now only interested in pions and kaons. But use all particles in the MC
 					// that means that a particle identified as a pion might loose its MC partner if
 					// that is not a pion
-
-					if (Math.abs(pid) != LundPID.Pion.lundCode() && Math.abs(pid) != LundPID.Kaon.lundCode())
-						continue;
-
+					
 					float vx = eventBank.getFloat("vx", current_part);
 					float vy = eventBank.getFloat("vy", current_part);
 					float vz = eventBank.getFloat("vz", current_part);
 					float px = eventBank.getFloat("px", current_part);
 					float py = eventBank.getFloat("py", current_part);
 					float pz = eventBank.getFloat("pz", current_part);
-					float beta = eventBank.getFloat("beta", current_part);
+					float beta=0;
+					if(!m_useMC)
+					 beta = eventBank.getFloat("beta", current_part);
 
-					float vxMC = 0;
-					float vyMC = 0;
-					float vzMC = 0;
-					float pxMC = 0;
-					float pyMC = 0;
-					float pzMC = 0;
-					// float betaMC=0;
-					int pidMC = 0;
-					if (m_useMC) {
-
-						vxMC = eventBankMC.getFloat("vx", current_part);
-						vyMC = eventBankMC.getFloat("vy", current_part);
-						vzMC = eventBankMC.getFloat("vz", current_part);
-						pxMC = eventBankMC.getFloat("px", current_part);
-						pyMC = eventBankMC.getFloat("py", current_part);
-						pzMC = eventBankMC.getFloat("pz", current_part);
-						// betaMC=eventBankMC.getFloat("beta", current_part);
-						pidMC = eventBankMC.getInt("pid", current_part);
-					}
+					
 
 					// System.out.println("pid: "+ pid +" pz: "+ pz +" status " + status + "
 					// chi2pid: " + chi2pid);
@@ -373,46 +370,59 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 					// are accepted in the reconstruction. That way we can do the matching but don't
 					// store pairs that are unnceessary
 					// this would be done differently if we want to reconsruct 'true' MC asymmetries
-					if (!m_useMC)
+				
+					//since eventBank and eventBankMC is  now the same, don't need the test anymore
 						part = new MyParticle(pid, px, py, pz, vx, vy, vz);
-					else
-						part = new MyParticle(pidMC, pxMC, pyMC, pzMC, vxMC, vyMC, vzMC);
-
+				
 					part_charge[current_part] = part.charge();
-					part.FTOFsector = this.FTOFSector[current_part];
-					// System.out.println("ftofsector: " + FTOFSector[current_part]);
-					if (this.FTOFSector[current_part] >= 0) {
-						part.FTOFTime = this.FTOFTime[current_part] - this.electronTime;
-						part.FTOFPath = this.FTOFPath[current_part];
-						float speedOLight = (float) 29.9792; // in cm per ns as per units in hip bank
-						// according to Stefan's code, this should be 10^7, but that makes beta too
-						// large, maybe speed of light is not in the right units
-						// part.beta=(float)Math.pow(10,1)*part.FTOFPath/(part.FTOFTime*speedOLight);
-						part.beta = beta;
-						// System.out.println("beta: " + beta);
+					//initialize for MC case
+					part.FTOFsector=-1;
+					part.FTOFTime=-1;
+					part.FTOFPath=-1;
+					part.m_chi2pid=-1;
+					if(!m_useMC)
+					{
+						part.FTOFsector = this.FTOFSector[current_part];
+						// System.out.println("ftofsector: " + FTOFSector[current_part]);
+						if (this.FTOFSector[current_part] >= 0) {
+							part.FTOFTime = this.FTOFTime[current_part] - this.electronTime;
+							part.FTOFPath = this.FTOFPath[current_part];
+							float speedOLight = (float) 29.9792; // in cm per ns as per units in hip bank
+							// according to Stefan's code, this should be 10^7, but that makes beta too
+							// large, maybe speed of light is not in the right units
+							// part.beta=(float)Math.pow(10,1)*part.FTOFPath/(part.FTOFTime*speedOLight);
+							part.beta = beta;
+							// System.out.println("beta: " + beta);
 						/// this is the computed one, but there seems to be somthing
-						// wrongpart.FTOFPath/(part.FTOFTime*speedOLight);
-						// System.out.println("beta computed: " + part.beta + " beta from bank " +
-						// beta);
-					} else {
-						part.FTOFTime = -1;
-						part.beta = -1;
+							// wrongpart.FTOFPath/(part.FTOFTime*speedOLight);
+							// System.out.println("beta computed: " + part.beta + " beta from bank " +
+							// beta);
+						} else {
+							part.FTOFTime = -1;
+							part.beta = -1;
+						}
+						part.m_chi2pid = chi2pid;
 					}
-					part.m_chi2pid = chi2pid;
-
 					int myPid = pid;
-					if (useStefanHadronCuts) {
+					if (useStefanHadronCuts && useStefanPIDCuts) {
 						myPid = this.stefanHadronPID(current_part, part);
 					}
 					if (myPid == 0)
 						continue;
-
-					// use reconstructed
-					if (!m_useMC)
-						part.PID = myPid;
+					
+					if(!m_useMC)
+					{
+					if (Math.abs(pid) != LundPID.Pion.lundCode() && Math.abs(pid) != LundPID.Kaon.lundCode())
+						continue;
+					}
 					else
-						part.PID = pidMC;
-
+					{
+						//for MC we should basically take everything to not 
+						//bias the matching. Exception are neutrons which can be plentiful
+						if(Math.abs(pid)==2112)
+							continue;
+					}
+									
 					// System.out.println("pid: " + pid + " stefan's id "+myPid);
 					// System.out.println("Adding particle");
 					physEvent.addParticle(part);
@@ -482,6 +492,11 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				// System.out.println("electron mom: " + mom);
 				// trigger thresholds is 1.5 GeV
 				// if (pid == LundPID.Electron.lundCode() && mom>1.5) {
+				
+				//use the 1.5 cut also for the 'no stefan' case
+				if(!m_useMC &&!useStefanElectronCuts && mom < 1.5)
+					continue;
+				
 				if (useStefanElectronCuts &&mom < 1.5) 
 					continue;
 					// System.out.println("after mom cut");
@@ -621,8 +636,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 //for electron
 	boolean DC_z_vertex_cut(int j, float vz) {
 
-		double vz_min_sect[] = { -8, -8, -8, -10, -7, -7 };
-		double vz_max_sect[] = { 12, 12, 12, 9, 13, 14 };
+		double vz_min_sect[] = {-12, -12, -12, -14, -12, -12};
+		double vz_max_sect[] = {10, 10, 10, 8, 10, 10};	
 		double vz_min = 0;
 		double vz_max = 0;
 
@@ -659,7 +674,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		double y_PCAL_rot = y_PCAL * Math.cos(sec_PCAL * 60.0 * Pival / 180)
 				- x_PCAL * Math.sin(sec_PCAL * 60.0 * Pival / 180);
 		double angle_PCAL = 60;
-		double height_PCAL = 45;
+		double height_PCAL = 47;
 		double slope_PCAL = 1 / Math.tan(0.5 * angle_PCAL * Pival / 180);
 		double left_PCAL = (height_PCAL - slope_PCAL * y_PCAL_rot);
 		double right_PCAL = (height_PCAL + slope_PCAL * y_PCAL_rot);
@@ -673,12 +688,16 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 
 	boolean EC_sampling_fraction_cut(int j) {
 		double sigma_range = 3;
-		double p0mean[] = { 0.101621, 0.115216, 0.109593, 0.114007, 0.114176, 0.108219 };
-		double p1mean[] = { -0.1569, 0.129423, -0.200557, 0.00208234, -0.0478747, -0.236188 };
-		double p2mean[] = { 0.0111515, 0.00903229, 0.0136201, 0.00959565, 0.0119958, 0.0191656 };
-		double p3mean[] = { -0.000966913, -0.000921184, -0.00130608, -0.000631906, -0.000827219, -0.00193565 };
-		double p0sigma[] = { 0.0132654, 0.014592, 0.0211849, 0.0198346, 0.0176063, 0.0213921 };
-		double p1sigma[] = { 0.00384941, 0.00340508, -0.0015, -0.000342043, 0.00119106, -0.00108573 };
+		double p0mean[] = {0.106333, 0.113711, 0.107714, 0.113276, 0.115548, 0.11108};
+		double p1mean[] = {-0.374003, 0.164037, -0.101566, 0.22524,0.272903, 0.0370852};
+		double p2mean[] = {0.00816235, 0.00390166, 0.00832663, 0.00324039,
+				0.00376747, 0.00899919};
+		double p3mean[] = {-0.000789648, -0.000432195, -0.00091734,
+				-0.00013304, -0.000173935, -0.000932962};
+		double p0sigma[] = {0.0162041, 0.0256151, 0.00996036, 0.0174414,
+				0.0195056, 0.0115662};
+		double p1sigma[] = {0.00472716, -0.00465669, 0.0140508, 0.00455405,
+				0.000429308, 0.0119683};
 		double mean = 0.0;
 		double sigma = 0.0;
 		double upper_lim_total = 0.0;
@@ -700,19 +719,19 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	}
 
 	// these cuts are obviously dependendent on inbending/outbending
-	boolean DC_hit_position_fiducial_cut(int j, boolean isHadron, boolean positive) {
+	boolean 	DC_hit_position_fiducial_cut(int j, boolean isHadron, boolean positive) {
 		double Pival = Math.PI;
 		double angle = 60;
 		boolean cut[] = new boolean[3];
 
-		double heightElectron[] = { 31, 47, 53 };
-		double radiusElectron[] = { 32, 49, 54 };
+		double heightElectron[] = { 29, 43, 48 };
+		double radiusElectron[] = { 30, 45, 50 };
 
-		double heightHPlus[] = { 19, 38, 69 };
-		double radiusHPlus[] = { 25, 46, 78 };
+		double heightHPlus[] = { 19, 38, 70 };
+		double radiusHPlus[] = { 25, 45, 77 };
 
-		double heightHMinus[] = { 27, 37, 41 };
-		double radiusHMinus[] = { 32, 46, 52 };
+		double heightHMinus[] = { 24, 44, 58 };
+		double radiusHMinus[] = { 29, 49, 63 };
 
 		double height[] = heightHPlus;
 		double radius[] = radiusHPlus;
@@ -826,7 +845,6 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 			}
 		}
 		return helic;
-		
 	}
 
 	boolean loadDCInfo() {
@@ -980,10 +998,14 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 
 	boolean prot_beta_cut(int j, int run) {
 
-		double prot_mean_p0[] = { 0.99772, 0.999712, 1.002, 1.00341, 0.996638, 0.994877 };
-		double prot_mean_p1[] = { 0.903685, 0.904014, 0.911304, 0.919944, 0.928512, 0.906204 };
-		double prot_sigma_p0[] = { 0.00537923, 0.00175809, 0.00260941, 0.00474539, 0.00120785, 0.00436982 };
-		double prot_sigma_p1[] = { 0.00699148, 0.012509, 0.0114863, 0.00858052, 0.0130581, 0.00874131 };
+		double prot_mean_p0[] = {1.00401, 1.00528, 1.00654, 1.00591,
+				1.00188, 1.00275};
+		double prot_mean_p1[] = {0.857477, 0.844641, 0.849807, 0.856546,
+				0.868042, 0.865406};	
+		double prot_sigma_p0[] = {0.000523482, 0.000246276, 0.000353689,
+				0.0010485, 2.31291e-05, 0.000327357};
+		double prot_sigma_p1[] = {0.0116411, 0.0127507, 0.0134067,
+				0.0111433, 0.0115489, 0.0118189};
 
 		double sigma_range = 3;
 
@@ -1009,10 +1031,14 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 
 	boolean pip_beta_cut(int j, int run) {
 
-		double pip_mean_p0[] = { 0.998123, 0.999355, 1.00116, 1.00181, 0.998036, 0.997051 };
-		double pip_mean_p1[] = { 0.0198787, 0.0186465, 0.020179, 0.0158253, 0.0154023, 0.0194915 };
-		double pip_sigma_p0[] = { 0.00704184, 0.00112775, -8.45517e-05, 0.00346458, 0.00266644, 0.00314696 };
-		double pip_sigma_p1[] = { 0.00404813, 0.00984778, 0.0134949, 0.00843767, 0.00915269, 0.00921848 };
+		double pip_mean_p0[] = {0.999323, 0.999618, 0.999888, 0.999911,
+				0.998791, 0.998889};
+		double pip_mean_p1[] =  {0.0180815, 0.0170855, 0.017013, 0.0180826,
+				0.0170883, 0.0163666};
+		double pip_sigma_p0[] = {0.0010424, 0.00154015, 0.00179487,
+				0.00224062, 0.000698921, 0.00103443};
+		double pip_sigma_p1[] = {0.00666186, 0.00601759, 0.00596096,
+				0.00509339, 0.00670074, 0.00668428};
 
 		double sigma_range = 3;
 
@@ -1038,10 +1064,14 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 
 	boolean pim_beta_cut(int j, int run) {
 
-		double pim_mean_p0[] = { 0.998814, 1.00054, 1.00076, 1.0019, 1.00108, 0.998871 };
-		double pim_mean_p1[] = { 0.0119921, 0.0123215, 0.0134271, 0.0134171, 0.0165288, 0.0117412 };
-		double pim_sigma_p0[] = { 0.000383561, 0.000930479, 0.00291482, 0.00239035, 0.00298586, 0.00144327 };
-		double pim_sigma_p1[] = { 0.00927645, 0.00851712, 0.00562522, 0.0064887, 0.00512879, 0.00766656 };
+		double pim_mean_p0[] = {0.99633, 0.99649, 0.996569, 0.996175,
+				0.99659, 0.996652};
+		double pim_mean_p1[] =  {0.0152746, 0.0157846, 0.0153856, 0.0151136,
+				0.014046, 0.0140012};
+		double pim_sigma_p0[] = {6.31538e-05, -0.000321628, 0.000343613,
+				3.57703e-05, -0.000221968, -0.000303001};
+		double pim_sigma_p1[] = {0.00683594, 0.00730936, 0.00658419,
+				0.00663091, 0.00704007, 0.0074271};
 
 		double sigma_range = 3;
 
@@ -1097,9 +1127,11 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	boolean Km_beta_cut(int j, int run) {
 
 		double Km_mean_p0[] = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
-		double Km_mean_p1[] = { 0.24372, 0.24372, 0.24372, 0.24372, 0.24372, 0.24372 };
-		double Km_sigma_p0[] = { 0.000383561, 0.000930479, 0.00291482, 0.00239035, 0.00298586, 0.00144327 };
-		double Km_sigma_p1[] = { 0.00927645, 0.00851712, 0.00562522, 0.0064887, 0.00512879, 0.00766656 };
+		double Km_mean_p1[] = {0.244, 0.244, 0.244, 0.244, 0.244, 0.244};
+		double Km_sigma_p0[] =  {0.0010424, 0.00154015, 0.00179487,
+				0.00224062, 0.000698921, 0.00103443};
+		double Km_sigma_p1[] = {0.00666186, 0.00601759, 0.00596096,
+				0.00509339, 0.00670074, 0.00668428}; 
 
 		double sigma_range = 3;
 
@@ -1141,36 +1173,50 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		// mean value and resolution for beta as a function of p for the different
 		// sectors
 
-		double prot_mean_p0[] = { 0.99772, 0.999712, 1.002, 1.00341, 0.996638, 0.994877 };
-		double prot_mean_p1[] = { 0.903685, 0.904014, 0.911304, 0.919944, 0.928512, 0.906204 };
-		double prot_sigma_p0[] = { 0.00537923, 0.00175809, 0.00260941, 0.00474539, 0.00120785, 0.00436982 };
-		double prot_sigma_p1[] = { 0.00699148, 0.012509, 0.0114863, 0.00858052, 0.0130581, 0.00874131 };
+		double prot_mean_p0[] = {1.00401, 1.00528, 1.00654, 1.00591,
+				1.00188, 1.00275};
+		 double prot_mean_p1[] = {0.857477, 0.844641, 0.849807, 0.856546,
+				 0.868042, 0.865406};
+				   double prot_sigma_p0[] = {0.000523482, 0.000246276, 0.000353689,
+				 0.0010485, 2.31291e-05, 0.000327357};
+				   double prot_sigma_p1[] = {0.0116411, 0.0127507, 0.0134067,
+				 0.0111433, 0.0115489, 0.0118189};
 
-		double pip_mean_p0[] = { 0.998123, 0.999355, 1.00116, 1.00181, 0.998036, 0.997051 };
-		double pip_mean_p1[] = { 0.0198787, 0.0186465, 0.020179, 0.0158253, 0.0154023, 0.0194915 };
-		double pip_sigma_p0[] = { 0.00704184, 0.00112775, -8.45517e-05, 0.00346458, 0.00266644, 0.00314696 };
-		double pip_sigma_p1[] = { 0.00404813, 0.00984778, 0.0134949, 0.00843767, 0.00915269, 0.00921848 };
+				   double pip_mean_p0[] = {0.999323, 0.999618, 0.999888, 0.999911,
+				 0.998791, 0.998889};
+				   double pip_mean_p1[] = {0.0180815, 0.0170855, 0.017013, 0.0180826,
+				 0.0170883, 0.0163666};
+				   double pip_sigma_p0[] = {0.0010424, 0.00154015, 0.00179487,
+				 0.00224062, 0.000698921, 0.00103443};
+				   double pip_sigma_p1[] = {0.00666186, 0.00601759, 0.00596096,
+				 0.00509339, 0.00670074, 0.00668428};
 
-		double Kp_mean_p0[] = { 1.00232, 1.0043, 1.0051, 1.01004, 1.00296, 1.00061 };
-		double Kp_mean_p1[] = { 0.237862, 0.25333, 0.256296, 0.26653, 0.251025, 0.232755 };
-		double Kp_sigma_p0[] = { 0.00704184, 0.00112775, -8.45517e-05, 0.00346458, 0.00266644, 0.00314696 }; // copied
-																												// from
-																												// pip
-		double Kp_sigma_p1[] = { 0.00404813, 0.00984778, 0.0134949, 0.00843767, 0.00915269, 0.00921848 }; // copied from
-																											// pip
+				   double Kp_mean_p0[] = {1.00, 1.00, 1.00, 1.00, 1.00, 1.00};
+				 // literature
+				   double Kp_mean_p1[] = {0.244, 0.244, 0.244, 0.244, 0.244, 0.244};
+				 // literature
+				   double Kp_sigma_p0[] = {0.0010424, 0.00154015, 0.00179487,
+				 0.00224062, 0.000698921, 0.00103443};     // copied from pip
+				   double Kp_sigma_p1[] = {0.00666186, 0.00601759, 0.00596096,
+				 0.00509339, 0.00670074, 0.00668428};     // copied from pip
 
-		double pim_mean_p0[] = { 0.998814, 1.00054, 1.00076, 1.0019, 1.00108, 0.998871 };
-		double pim_mean_p1[] = { 0.0119921, 0.0123215, 0.0134271, 0.0134171, 0.0165288, 0.0117412 };
-		double pim_sigma_p0[] = { 0.000383561, 0.000930479, 0.00291482, 0.00239035, 0.00298586, 0.00144327 };
-		double pim_sigma_p1[] = { 0.00927645, 0.00851712, 0.00562522, 0.0064887, 0.00512879, 0.00766656 };
+				   double pim_mean_p0[] = {0.99633, 0.99649, 0.996569, 0.996175,
+				 0.99659, 0.996652};
+				   double pim_mean_p1[] = {0.0152746, 0.0157846, 0.0153856, 0.0151136,
+				 0.014046, 0.0140012};
+				   double pim_sigma_p0[] = {6.31538e-05, -0.000321628, 0.000343613,
+				 3.57703e-05, -0.000221968, -0.000303001};
+				   double pim_sigma_p1[] = {0.00683594, 0.00730936, 0.00658419,
+				 0.00663091, 0.00704007, 0.0074271};
 
-		double Km_mean_p0[] = { 0.997236, 1.00323, 1.00473, 1.00571, 0.999167, 1.00404 };
-		double Km_mean_p1[] = { 0.228521, 0.244687, 0.257147, 0.246568, 0.232191, 0.257002 };
-		double Km_sigma_p0[] = { 0.000383561, 0.000930479, 0.00291482, 0.00239035, 0.00298586, 0.00144327 }; // copied
-																												// from
-																												// pim
-		double Km_sigma_p1[] = { 0.00927645, 0.00851712, 0.00562522, 0.0064887, 0.00512879, 0.00766656 }; // copied from
-																											// pim
+				   double Km_mean_p0[] = {1.00, 1.00, 1.00, 1.00, 1.00, 1.00};
+				 // literature
+				   double Km_mean_p1[] = {0.244, 0.244, 0.244, 0.244, 0.244, 0.244};
+				 // literature
+				   double Km_sigma_p0[] = {6.31538e-05, -0.000321628, 0.000343613,
+				 3.57703e-05, -0.000221968, -0.000303001};    // copied from pim
+				   double Km_sigma_p1[] = {0.00683594, 0.00730936, 0.00658419,
+				 0.00663091, 0.00704007, 0.0074271};              // copied from pim
 
 		// //////////////////////////////////////////////////////////////////////////////////////////////////
 		// population factors for the different particles (integrated over p)
@@ -1214,7 +1260,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 						+ 0.95490000 * Math.pow(part_p[j], 4) - 0.38710000 * Math.pow(part_p[j], 5)
 						+ 0.0858300000 * Math.pow(part_p[j], 6) - 0.00966400000 * Math.pow(part_p[j], 7)
 						+ 0.0001328 * Math.pow(part_p[j], 8) + 0.0001076 * Math.pow(part_p[j], 9)
-						- 0.00001395 * Math.pow(part_p[j], 10) + 0.0000007545 * Math.pow(part_p[j], 11)
+						- 0.00001395 * Math.pow(part_p[j], 10	) + 0.0000007545 * Math.pow(part_p[j], 11)
 						- 0.00000001582 * Math.pow(part_p[j], 12);
 				popfrac_pip = 0.90020 - 0.7225000000 * Math.pow(part_p[j], 1) + 0.41450000000 * Math.pow(part_p[j], 2)
 						- 0.1149000 * Math.pow(part_p[j], 3) + 0.01728000 * Math.pow(part_p[j], 4)
@@ -1445,35 +1491,36 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		// mean value and resolution for beta as a function of p for the different
 		// sectors
 
-		double prot_mean_p0 = 0.0316745;
-		double prot_mean_p1 = 0.964774;
-		double prot_mean_p2 = 0.951388;
-		double prot_sigma_p0 = -0.00271316;
-		double prot_sigma_p1 = 0.0197528;
+		double prot_mean_p0 = -0.0157773;
+		  double prot_mean_p1 = 0.992786;
+		  double prot_mean_p2 = 0.886921;
+		  double prot_sigma_p0 = 0.129247;
+		  double prot_sigma_p1 = -0.0606478;
 
-		double pip_mean_p0 = -3.2458;
-		double pip_mean_p1 = 4.24197;
-		double pip_mean_p2 = 0.00361836;
-		double pip_sigma_p0 = -0.00201627;
-		double pip_sigma_p1 = 0.0171322;
+		  double pip_mean_p0 = -1.40262;
+		  double pip_mean_p1 = 2.37572;
+		  double pip_mean_p2 = 0.0100619;
+		  double pip_sigma_p0 = 0.11545;
+		  double pip_sigma_p1 = -0.00569233;
 
-		double pim_mean_p0 = 0.924408;
-		double pim_mean_p1 = 0.0726981;
-		double pim_mean_p2 = 0.0842059;
-		double pim_sigma_p0 = 0.00100331;
-		double pim_sigma_p1 = 0.00882211;
+		  double pim_mean_p0 = -0.309342;
+		  double pim_mean_p1 = 1.28698;
+		  double pim_mean_p2 = 0.0228848;
+		  double pim_sigma_p0 = 0.0880416;
+		  double pim_sigma_p1 = 0.00147085;
 
-		double Kp_mean_p0 = -0.0041; // expected offset from pion offset
-		double Kp_mean_p1 = 1.00000;
-		double Kp_mean_p2 = 0.24372; // lit. Kaon mass
-		double Kp_sigma_p0 = -0.00201627; // copied from pip
-		double Kp_sigma_p1 = 0.0171322; // copied from pip
+		  double Kp_mean_p0 = 0.00000;
+		  double Kp_mean_p1 = 1.00000;
+		  double Kp_mean_p2 = 0.24372;         // lit. Kaon mass
+		  double Kp_sigma_p0 = 0.11545;        // copied from pip
+		  double Kp_sigma_p1 = -0.00569233;    // copied from pip
 
-		double Km_mean_p0 = -0.0041; // expected offset from pion offset
-		double Km_mean_p1 = 1.00000;
-		double Km_mean_p2 = 0.24372; // lit. Kaon mass
-		double Km_sigma_p0 = 0.00100331; // copied from pim
-		double Km_sigma_p1 = 0.00882211; // copied from pim
+
+		  double Km_mean_p0 = 0.00000;
+		  double Km_mean_p1 = 1.00000;
+		  double Km_mean_p2 = 0.24372;        // lit. Kaon mass
+		  double Km_sigma_p0 = 0.0880416;     // copied from pim
+		  double Km_sigma_p1 = 0.00147085;    // copied from pim
 
 		// //////////////////////////////////////////////////////////////////////////////////////////////////
 		// population factors for the different particles (integrated over p)
