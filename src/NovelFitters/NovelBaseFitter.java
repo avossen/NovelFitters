@@ -27,6 +27,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected double W;
 	protected double nu;
 	protected double y;
+	protected float torus;
+	protected float solenoid;
 	protected int runNumber;
 	protected int evtNumber;
 	protected float electronTime;
@@ -43,6 +45,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected String bankNameMC;
 	public static boolean useStefanPIDCuts=false;
 	public static boolean useStefanElectronCuts = false;
+	public static boolean noVertexCut=false;
 	// for rec software before June, we need to access timebasedtracks bank
 	// to get sector. After that it is in in REC::Tracks
 	public static boolean useTimeBasedTracks = false;
@@ -114,6 +117,15 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		return helicity;
 	}
 
+	public float getTorus()
+	{
+		return torus;
+	}
+	public float getSolenoid()
+	{
+		return solenoid;
+	}
+	
 	public double getQ2() {
 		return Q2;
 	}
@@ -493,7 +505,12 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				// trigger thresholds is 1.5 GeV
 				// if (pid == LundPID.Electron.lundCode() && mom>1.5) {
 				
-				//use the 1.5 cut also for the 'no stefan' case
+				//for x-check purposes
+				if(mom< 2.0)
+				{
+					continue;
+				}
+					//use the 1.5 cut also for the 'no stefan' case
 				if(!m_useMC &&!useStefanElectronCuts && mom < 1.5)
 					continue;
 				
@@ -635,7 +652,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	}
 //for electron
 	boolean DC_z_vertex_cut(int j, float vz) {
-
+if(noVertexCut)
+	return true;
 		double vz_min_sect[] = {-12, -12, -12, -14, -12, -12};
 		double vz_max_sect[] = {10, 10, 10, 8, 10, 10};	
 		double vz_min = 0;
@@ -750,7 +768,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		int sec[] = { this.part_DC_sector[j] - 1, this.part_DC_sector[j] - 1, this.part_DC_sector[j] - 1 };
 		for (int i = 0; i < 3; i++) {
 			dcAllPos[i].fill(x[i], y[i]);
-
+//this is a backwards rotation since the signs are flipped, accounting for -sin(x)=sin(-x), cos(x)=cos(-x)
 			double x1_rot = y[i] * Math.sin(sec[i] * 60.0 * Pival / 180) + x[i] * Math.cos(sec[i] * 60.0 * Pival / 180);
 			double y1_rot = y[i] * Math.cos(sec[i] * 60.0 * Pival / 180) - x[i] * Math.sin(sec[i] * 60.0 * Pival / 180);
 			double slope = 1 / Math.tan(0.5 * angle * Pival / 180);
@@ -813,7 +831,15 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 
 	int getHelicityAndSetRunEvtNumbers() {
 		int helic=0;
-	
+		torus=(float)0.0;
+		if(m_event.hasBank("RUN::config"))	
+		{
+			HipoDataBank runConfig = (HipoDataBank) m_event.getBank("RUN:config");
+			torus=runConfig.getFloat("torus",0);
+			solenoid=runConfig.getFloat("solenoid",0);
+		}
+		
+		
 		String bankName=new String();
 		if(this.m_isMC)
 			bankName="MC::Header";

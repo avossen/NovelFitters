@@ -6,8 +6,6 @@ import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 
-import org.jlab.clas.physics.EventFilter;
-import org.jlab.clas.physics.PhysicsEvent;
 import org.jlab.groot.data.H1F;
 import org.jlab.groot.data.H2F;
 import org.jlab.io.hipo.HipoDataEvent;
@@ -41,6 +39,8 @@ public class FitterTester {
 	protected NovelBaseFitter novel_fitter;
 	protected NovelBaseFitter novel_fitterMC;
 	public boolean isMC;
+	public int numMatch;
+	public int numAllPairs;
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
 		if (args.length == 0) {
@@ -49,21 +49,23 @@ public class FitterTester {
 			System.exit(0);
 		}
 		FitterTester tester = new FitterTester();
-		tester.isMC=true;
+		tester.isMC=false;
 		//analyzer.isMC=false;
 		tester.analyze(args);
+		System.out.println("num match: " + tester.numMatch + " all pairs: "+ tester.numAllPairs + " fraction: " + (float)tester.numMatch/(float)tester.numAllPairs);
 	}
 
 	
 	public void analyze(String[] args) {
 		
-		NovelBaseFitter.useStefanElectronCuts=false;
-		NovelBaseFitter.useStefanHadronCuts=false;
-		NovelBaseFitter.useTimeBasedTracks=true;
+		NovelBaseFitter.useStefanElectronCuts=true;
+		NovelBaseFitter.useStefanHadronCuts=true;
+		NovelBaseFitter.useTimeBasedTracks=false;
 		
 		HipoDataSource reader = new HipoDataSource();
 		// define fitter class, argument is the beam energy (GeV)
 		 novel_fitter = new NovelBaseFitter(10.6,false,false);
+		 novel_fitter.noVertexCut=true;
 		//novel_fitter = new NovelBaseFitter(10.6, true, true);
 		 if(isMC)
 			 novel_fitterMC = new NovelBaseFitter(10.6, true, true);
@@ -101,12 +103,25 @@ public class FitterTester {
 						PhysicsEvent generic_EventMC=new PhysicsEvent();
 						if(isMC)
 						{
-							generic_EventMC = novel_fitterMC.getPhysicsEvent(event);
+							
+								generic_EventMC = novel_fitterMC.getPhysicsEvent(event);
+						
+						if(generic_Event.count()>1)
+						System.out.println("we have " + generic_Event.count() + " rec events and "+ generic_EventMC.count() + " mc events");
+					
+							//-->
+							associateMCWithData(generic_Event, generic_EventMC);
+						
 						}
+						doDiHadrons(generic_Event,generic_EventMC,novel_fitter,novel_fitterMC);
+						
+						
 					//	System.out.println("helicity is "+ generic_Event.)
 						// novel_fitter.Walt);
 						if(generic_Event.count()>1)
-							System.out.println("looking at event with " + generic_Event.count() + " particles ");
+						{
+						//	System.out.println("looking at event with " + generic_Event.count() + " particles ");
+						}
 						if (filter.isValid(generic_Event) == true) { // apply filter to current event
 							// look at all particles
 							System.out.println("we have " +generic_Event.count());
@@ -151,6 +166,108 @@ public class FitterTester {
 			}
 		}
 		this.novel_fitter.saveHitHistograms();
+	}
+	protected void associateMCWithData(PhysicsEvent generic_Event, PhysicsEvent generic_EventMC) {
+		//System.out.println("associate");
+				for (int i = 0; i < generic_Event.count(); i++) {
+					double minMomDiff = 1000.0;
+					int minMomDiffIndex = -1;
+					MyParticle part = (MyParticle) generic_Event.getParticle(i);
+					double px = part.px();
+					double py = part.py();
+					double pz = part.pz();
+					System.out.println("data part px " + px + " py " + py + " pz " + pz);
+
+					double mom = Math.sqrt(px * px + py * py + pz * pz);
+					double theta = Math.toDegrees(Math.atan2(Math.sqrt(px * px + py * py), pz));
+					double phi = Math.toDegrees(Math.atan2(py, px));
+					System.out.println("data theta "+ theta + " phi " + phi + " mom " +mom);
+					for (int j = 0; j < generic_EventMC.count(); j++) {
+						MyParticle partMC = (MyParticle) generic_EventMC.getParticle(j);
+						double pxMC = partMC.px();
+						double pyMC = partMC.py();
+						double pzMC = partMC.pz();
+
+						double momMC = Math.sqrt(pxMC * pxMC + pyMC * pyMC + pzMC * pzMC);
+						double thetaMC = Math.toDegrees(Math.atan2(Math.sqrt(pxMC * pxMC + pyMC * pyMC), pzMC));
+						double phiMC = Math.toDegrees(Math.atan2(pyMC, pxMC));
+						//if (i == 0) 
+						{
+							 System.out.println("MC part px " + pxMC + " py " + pyMC + " pz " + pzMC);
+							 System.out.println("mc teta "+ thetaMC + " phi " + phiMC + " mom " +momMC);
+						}
+
+						// System.out.println("Looking at MC part "+ j + " rel momDiff: " + ((mom-momMC)/momMC));
+					//	if (Math.abs(mom - momMC) < 0.025 * momMC && Math.abs(theta - thetaMC) < 1.0 && Math.abs(phi - phiMC) < 5)
+						//let's increase this
+						if (Math.abs(mom - momMC) < (0.1 * momMC) && Math.abs(theta - thetaMC) < 2.0 && Math.abs(phi - phiMC) < 10)
+						{
+							if (Math.abs(mom - momMC) < minMomDiff) {
+								minMomDiff = Math.abs(mom - momMC);
+								minMomDiffIndex = j;
+							}
+						}
+					}
+				System.out.println("associate mc part "+minMomDiffIndex + " with "+ i);
+					part.matchingMCPartIndex = minMomDiffIndex;
+				}
+
+			}
+	
+	void doDiHadrons(PhysicsEvent generic_Event, PhysicsEvent generic_EventMC, NovelBaseFitter m_novel_fitter, NovelBaseFitter m_novel_fitterMC) {
+		//System.out.println("in do dihad with "+generic_Event.count() + "particles ");
+		for (int i = 0; i < generic_Event.count(); i++) 
+		
+		
+		{
+			MyParticle part = (MyParticle) generic_Event.getParticle(i);
+			int sec= part.FTOFsector;
+			if(sec<=0)
+				sec=6;
+			
+			//System.out.println("sec: " + sec+ ", beta is " + part.beta);
+			if(part.beta<10.0 && part.beta>-10.0)
+			{
+				
+			}
+			//System.out.println("time is: " + part.FTOFTime + " sector: " + part.FTOFsector);
+			// System.out.println("matching mc particle index: " +
+			// part.matchingMCPartIndex);
+
+			
+			
+			if (part.pid() == LundPID.Pion.lundCode() || part.pid()==LundPID.Kaon.lundCode()) {
+				
+				for (int j = 0; j < generic_Event.count(); j++) {
+					MyParticle part2 = (MyParticle) generic_Event.getParticle(j);
+					// Systefm.out.println("lookign at pid " + part2.pid());
+					if (part2.pid() == ((-1)*LundPID.Pion.lundCode()) || part2.pid()==((-1)*LundPID.Kaon.lundCode())){
+						
+						
+					if(part.e()<1.0 || part2.e()<1.0)
+						continue;
+					if(part.theta()<0.17 || part2.theta()<0.17)
+						continue;
+						
+					
+						
+						this.numAllPairs++;
+						if (part.matchingMCPartIndex != -1 && part2.matchingMCPartIndex != -1) {
+							//System.out.println("found di hadron  candidate with matching MC!!");
+
+							this.numMatch++;
+						}
+					
+					//System.out.println("adding hadron pair");	
+					//System.out.println("pair data before: " + this.currentEvent.pairData.size());	
+						
+					//	System.out.println("pair data now: " + this.currentEvent.pairData.size());	
+						
+					}
+				}
+			}
+		}
+
 	}
 	
 }
