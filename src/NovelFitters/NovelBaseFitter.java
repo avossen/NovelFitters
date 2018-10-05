@@ -15,6 +15,7 @@ import org.jlab.clas.physics.*;
 import org.apache.commons.math3.*;
 
 public class NovelBaseFitter extends GenericKinematicFitter {
+public static int debugEvent=48478732;
 
 	public Vector3 gNBoost;
 	public double Walt;
@@ -46,6 +47,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	public static boolean useStefanPIDCuts=false;
 	public static boolean useStefanElectronCuts = false;
 	public static boolean noVertexCut=false;
+	public static boolean forceEBElectronId=true;
+	public static boolean useAllStefanElectronCuts=false;
 	// for rec software before June, we need to access timebasedtracks bank
 	// to get sector. After that it is in in REC::Tracks
 	public static boolean useTimeBasedTracks = false;
@@ -58,6 +61,11 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	protected int[] calPindex = new int[maxArrSize];
 	protected float[] part_Cal_PCAL_x = new float[maxArrSize];
 	protected float[] part_Cal_PCAL_y = new float[maxArrSize];
+	protected float[] PCAL_lu = new float[maxArrSize];
+	protected float[] PCAL_lv = new float[maxArrSize];
+	protected float[] PCAL_lw = new float[maxArrSize];
+	
+	
 	protected float part_Cal_PCAL_E[] = new float[maxArrSize];
 	protected int trkSectors[] = new int[maxArrSize];
 	protected double part_Cal_CalTotal_E[] = new double[maxArrSize];
@@ -169,6 +177,11 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		Arrays.fill(calPindex, 0);
 		Arrays.fill(part_Cal_PCAL_x, (float) 0.0);
 		Arrays.fill(part_Cal_PCAL_y, (float) 0.0);
+		Arrays.fill(PCAL_lu, (float) 0.0);
+		Arrays.fill(PCAL_lv, (float) 0.0);
+		Arrays.fill(PCAL_lw, (float) 0.0);
+		
+		
 		Arrays.fill(part_Cal_PCAL_E, (float) 0.0);
 
 		Arrays.fill(part_Cal_CalTotal_E, 0.0);
@@ -253,7 +266,7 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 	 */
 	@Override
 	public PhysicsEvent getPhysicsEvent(DataEvent event) {
-
+		
 		this.cleanArrays();
 		foundLambda = 0;
 		boolean banks_test = true; // check to see if the event has all of the banks present
@@ -295,13 +308,33 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				//eventBank now points to evenBankMC
 				eventBank=eventBankMC;
 			}
+
+			try {
+				
+				helicity = getHelicityAndSetRunEvtNumbers();
+			
+				if(this.evtNumber==debugEvent)
+				{
+					System.out.println("found our run.. (novel base)");
+				}
+				// System.out.println("helicity: " + helicity);
+
+				// seems like mc does not have status or chi2pid
+				
+			} catch (NullPointerException ex) {
+			}
 			// System.out.println("check for electron");
 			if (!findScatteredElectron(eventBank)) {
+				if(this.evtNumber==debugEvent)
+				{
+					System.out.println("no electron.. (novel base)");
+				}
 				throw new Exception("no electron");
 			}
 			// System.out.println("got electron");
 			PhysicsEvent physEvent = new PhysicsEvent();
-			this.scatteredElectron.PID=11;
+			//should have been set already by the findScatteredElectron routine
+			//this.scatteredElectron.PID=11;
 			physEvent.addParticle(this.scatteredElectron);
 			// if(eventBank.rows()>=maxArrSize)
 			// continue;
@@ -323,11 +356,8 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				float chi2pid = -1;
 
 				try {
-					helicity = getHelicityAndSetRunEvtNumbers();
-					// System.out.println("helicity: " + helicity);
-
-					// seems like mc does not have status or chi2pid
-					if (!m_isMC) {
+				
+					if (!m_isMC ) {
 						status = eventBank.getInt("status", current_part);
 						chi2pid = eventBank.getFloat("chi2pid", current_part);
 					}
@@ -351,6 +381,14 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 					// for now only interested in pions and kaons. But use all particles in the MC
 					// that means that a particle identified as a pion might loose its MC partner if
 					// that is not a pion
+					
+					//not the most elegant, but we need a pid!=0 to construct a particle
+					//that we can pass to the PID stuff, so we just assume a pion here
+					//this is only possible if we use Stefan's cuts for hadron and pid,
+					//so for that we reassess the pid anyways
+					if(pid==0)
+						pid=211;
+					
 					
 					float vx = eventBank.getFloat("vx", current_part);
 					float vy = eventBank.getFloat("vy", current_part);
@@ -416,16 +454,29 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 						part.m_chi2pid = chi2pid;
 					}
 					int myPid = pid;
+					//these are just the fiducial cuts
+					if(useStefanHadronCuts)
+					{
+						if(0==stefanHadronFiducialCuts(current_part,part))
+						{
+							continue;
+						}
+					}	
 					if (useStefanHadronCuts && useStefanPIDCuts) {
 						myPid = this.stefanHadronPID(current_part, part);
+						
 					}
 					if (myPid == 0)
 						continue;
-					
+					if(this.evtNumber==debugEvent && Math.abs((myPid))==211)
+					{
+						System.out.println("found pion ("+myPid+") with mom x: " + px + " py " + py+ " pz "+ pz);
+
+					}
 					if(!m_useMC)
 					{
-					if (Math.abs(pid) != LundPID.Pion.lundCode() && Math.abs(pid) != LundPID.Kaon.lundCode())
-						continue;
+						if (Math.abs(pid) != LundPID.Pion.lundCode() && Math.abs(pid) != LundPID.Kaon.lundCode())
+							continue;
 					}
 					else
 					{
@@ -437,6 +488,10 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 									
 					// System.out.println("pid: " + pid + " stefan's id "+myPid);
 					// System.out.println("Adding particle");
+					if(this.evtNumber==debugEvent)
+					{
+						System.out.println("adding "+ pid);
+					}
 					physEvent.addParticle(part);
 				}
 
@@ -482,20 +537,44 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 
 			int pid = eventBank.getInt("pid", current_part);
 			// System.out.println("get status");
-
+			if(forceEBElectronId&&pid!=LundPID.Electron.lundCode())
+				continue;
 			if (pid != 0) {
+				if(this.evtNumber==debugEvent)
+				{
+					System.out.println("looking for e, found pid " + pid);
+				}
 				float vx = eventBank.getFloat("vx", current_part);
 				float vy = eventBank.getFloat("vy", current_part);
 				float vz = eventBank.getFloat("vz", current_part);
 				float px = eventBank.getFloat("px", current_part);
 				float py = eventBank.getFloat("py", current_part);
 				float pz = eventBank.getFloat("pz", current_part);
+				float chi2pid=-1;
+				try {
+					if(!m_isMC)
+					{
+						chi2pid=eventBank.getFloat("chi2pid", current_part);
+					}
+			} catch (NullPointerException ex) {
+			}
+				if(Math.abs(chi2pid)>=9999.0)
+					continue;
 				// System.out.println("pid: "+ pid +" pz: "+ pz +" status " + status + "
 				// chi2pid: " + chi2pid);
-
+				if(this.evtNumber==debugEvent)
+				{
+					System.out.println("testing vz: " + vz);
+				}
 				/// Stefan's vz cut is sector dependent. Here only rough
 				if (useStefanElectronCuts&& !DC_z_vertex_cut(current_part, vz))
+				{
+					if(this.evtNumber==debugEvent)
+					{
+						System.out.println("vtx cut");
+					}
 					continue;
+				}
 				// System.out.println("after vertex cut");
 
 				float mom = (float) Math.sqrt(px * px + py * py + pz * pz);
@@ -508,6 +587,10 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 				//for x-check purposes
 				if(mom< 2.0)
 				{
+					if(this.evtNumber==debugEvent)
+					{
+						System.out.println("mom cut " + mom);
+					}
 					continue;
 				}
 					//use the 1.5 cut also for the 'no stefan' case
@@ -520,6 +603,10 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 					if (useStefanElectronCuts && !survivesStefanElectronCuts(current_part)) {
 						continue;
 					}
+					else
+					{
+						
+					}
 					// if we don't use stefan's cut, use default assignment
 					if (!useStefanElectronCuts && !(pid == LundPID.Electron.lundCode()))
 						continue;
@@ -530,7 +617,11 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 						maxPx = px;
 						maxPy = py;
 						maxPz = pz;
-
+						if(this.evtNumber==debugEvent)
+						{
+							System.out.println("found electron with mom x: " + px + " py " + py+ " pz "+ pz);
+	
+						}
 						maxVx = vx;
 						maxVy = vy;
 						maxVz = vz;
@@ -565,8 +656,10 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		// REC:trajectory
 
 		boolean ecFiducialCuts = EC_hit_position_fiducial_cut(partIndex);
+		//boolean ecFiducialCuts = EC_hit_position_fiducial_cut_natural(partIndex);
 		boolean dcFiducialCuts = DC_hit_position_fiducial_cut(partIndex, false, false);
-		boolean ecEnergyDeposit = EC_sampling_fraction_cut(partIndex);
+		//boolean ecEnergyDeposit = EC_sampling_fraction_cut(partIndex);
+		boolean ecEnergyDeposit=true;
 		boolean hasFtofHit = false;
 		if (this.FTOFHit[partIndex] > 0)
 			hasFtofHit = true;
@@ -575,11 +668,25 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		boolean pcalECut = true;
 		if (this.part_Cal_PCAL_E[partIndex] < 0.06)
 			pcalECut = false;
+		
+		
+		
+		
 		// if(dcFiducialCuts)
 		// System.out.println("dc fid cuts!");
 		// System.out.println("ec cut: " + ecFiducialCuts + " dc "+dcFiducialCuts + " ec
 		// energy "+ ecEnergyDeposit + " has ftof "+hasFtofHit+" pcal "+ pcalECut);
-		return (ecFiducialCuts && dcFiducialCuts && ecEnergyDeposit && hasFtofHit && pcalECut);
+		//kick out the ecal and ftof hits (so everything besides fiducial)
+		
+ 		
+		if(this.evtNumber==debugEvent)
+		{
+			System.out.println(debugEvent+" survives fid cuts? "+ ecFiducialCuts + " dc: "+ dcFiducialCuts);
+		}
+		if(useAllStefanElectronCuts)
+			return (ecFiducialCuts && dcFiducialCuts && ecEnergyDeposit && hasFtofHit && pcalECut);
+		else
+			return (ecFiducialCuts && dcFiducialCuts );
 	}
 
 	void saveHitHistograms()
@@ -622,13 +729,21 @@ public class NovelBaseFitter extends GenericKinematicFitter {
 		
 	}
 	
-	int stefanHadronPID(int partIndex, MyParticle part) {
+	int stefanHadronFiducialCuts(int partIndex, MyParticle part)
+	{
 		boolean isPos = false;
 		if (part.charge() > 0)
 			isPos = true;
 		boolean dcFiducialCut = DC_hit_position_fiducial_cut(partIndex, true, isPos);
 		if (!dcFiducialCut)
 			return 0;
+		return 1;
+	}
+	int stefanHadronPID(int partIndex, MyParticle part) {
+		boolean isPos = false;
+		if (part.charge() > 0)
+			isPos = true;
+		
 		int chargeFactor = (-1);
 		if (isPos)
 			chargeFactor = 1;
@@ -673,8 +788,24 @@ if(noVertexCut)
 			return false;
 	}
 
+	
 	// C++ code from stefan's note
-
+	
+	
+	//cut in the natural pcal co-ordinates-->outdated numbers
+	boolean EC_hit_position_fiducial_cut_natural(int j){
+		double u = PCAL_lu[j];
+		double v = PCAL_lv[j];
+		double w = PCAL_lw[j];
+		double min_u = 8;
+		double max_u = 400;
+		double min_v = 8;
+		double max_v = 400;
+		double min_w = 8;
+		double max_w = 400;
+		if(u > min_u && u < max_u && v > min_v && v < max_v && w > min_w && w < max_w) return true;
+		else return false;
+		}
 	boolean EC_hit_position_fiducial_cut(int j) {
 
 		int sec_PCAL = part_Cal_PCAL_sector[j] - 1;
@@ -682,8 +813,9 @@ if(noVertexCut)
 		double y_PCAL = part_Cal_PCAL_y[j];
 
 		// pcal energy cut. electron leaves more 0.06 GeV in PCAL
-		if (part_Cal_PCAL_E[j] < 0.06)
-			return false;
+		//we test this extra, this function is only fiducial cuts
+	//	if (part_Cal_PCAL_E[j] < 0.06)
+	//		return false;
 
 		// not sure if that is correct. I guess six setors * 6=2*180
 		double Pival = Math.PI;
@@ -761,7 +893,10 @@ if(noVertexCut)
 			height = heightHMinus;
 			radius = radiusHMinus;
 		}
-
+if(this.evtNumber==debugEvent && isHadron==false)
+{
+	System.out.println("check my event");
+}
 		double x[] = { part_DC_c1x[j], part_DC_c2x[j], part_DC_c3x[j] };
 		double y[] = { part_DC_c1y[j], part_DC_c2y[j], part_DC_c3y[j] };
 
@@ -771,6 +906,12 @@ if(noVertexCut)
 //this is a backwards rotation since the signs are flipped, accounting for -sin(x)=sin(-x), cos(x)=cos(-x)
 			double x1_rot = y[i] * Math.sin(sec[i] * 60.0 * Pival / 180) + x[i] * Math.cos(sec[i] * 60.0 * Pival / 180);
 			double y1_rot = y[i] * Math.cos(sec[i] * 60.0 * Pival / 180) - x[i] * Math.sin(sec[i] * 60.0 * Pival / 180);
+			if(this.evtNumber==debugEvent && positive==false && isHadron==true)
+			{
+				//System.out.println("check my event");
+				//System.out.println("det " +i + " x1 rot: "+ x1_rot +" y1_rot: "+y1_rot);
+			}
+				
 			double slope = 1 / Math.tan(0.5 * angle * Pival / 180);
 			double left = (height[i] - slope * y1_rot);
 			double right = (height[i] + slope * y1_rot);
@@ -834,7 +975,7 @@ if(noVertexCut)
 		torus=(float)0.0;
 		if(m_event.hasBank("RUN::config"))	
 		{
-			HipoDataBank runConfig = (HipoDataBank) m_event.getBank("RUN:config");
+			HipoDataBank runConfig = (HipoDataBank) m_event.getBank("RUN::config");
 			torus=runConfig.getFloat("torus",0);
 			solenoid=runConfig.getFloat("solenoid",0);
 		}
@@ -985,6 +1126,15 @@ if(noVertexCut)
 					part_Cal_PCAL_x[pindex] = x;
 					float y = eventBank.getFloat("y", current_part);
 					part_Cal_PCAL_y[pindex] = y;
+					
+					float lu = eventBank.getFloat("lu", current_part);
+					PCAL_lu[pindex] = lu;
+					float lv = eventBank.getFloat("lv", current_part);
+					PCAL_lv[pindex] = lv;
+					float lw = eventBank.getFloat("lw", current_part);
+					PCAL_lw[pindex] = lw;
+					
+					
 					part_Cal_PCAL_E[pindex] = energy;
 				}
 				if (layer == 1 || layer == 4 || layer == 7) {

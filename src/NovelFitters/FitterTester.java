@@ -59,13 +59,14 @@ public class FitterTester {
 	public void analyze(String[] args) {
 		
 		NovelBaseFitter.useStefanElectronCuts=true;
+		NovelBaseFitter.useStefanPIDCuts=false;
 		NovelBaseFitter.useStefanHadronCuts=true;
 		NovelBaseFitter.useTimeBasedTracks=false;
-		
+		NovelBaseFitter.noVertexCut=true;
 		HipoDataSource reader = new HipoDataSource();
 		// define fitter class, argument is the beam energy (GeV)
 		 novel_fitter = new NovelBaseFitter(10.6,false,false);
-		 novel_fitter.noVertexCut=true;
+		 
 		//novel_fitter = new NovelBaseFitter(10.6, true, true);
 		 if(isMC)
 			 novel_fitterMC = new NovelBaseFitter(10.6, true, true);
@@ -107,8 +108,9 @@ public class FitterTester {
 								generic_EventMC = novel_fitterMC.getPhysicsEvent(event);
 						
 						if(generic_Event.count()>1)
-						System.out.println("we have " + generic_Event.count() + " rec events and "+ generic_EventMC.count() + " mc events");
-					
+						{
+					//	System.out.println("we have " + generic_Event.count() + " rec events and "+ generic_EventMC.count() + " mc events");
+						}
 							//-->
 							associateMCWithData(generic_Event, generic_EventMC);
 						
@@ -118,13 +120,19 @@ public class FitterTester {
 						
 					//	System.out.println("helicity is "+ generic_Event.)
 						// novel_fitter.Walt);
+						//51831184
 						if(generic_Event.count()>1)
 						{
 						//	System.out.println("looking at event with " + generic_Event.count() + " particles ");
 						}
 						if (filter.isValid(generic_Event) == true) { // apply filter to current event
 							// look at all particles
-							System.out.println("we have " +generic_Event.count());
+							if(novel_fitter.getEvtNumber()==novel_fitter.debugEvent)
+							{
+								System.out.println("event " + novel_fitter.debugEvent+" filtered event");
+								System.out.println("we have " +generic_Event.count());
+							}
+							
 							for (int i = 0; i < generic_Event.count(); i++) 	
 							{
 								MyParticle part = (MyParticle) generic_Event.getParticle(i);
@@ -216,6 +224,11 @@ public class FitterTester {
 	
 	void doDiHadrons(PhysicsEvent generic_Event, PhysicsEvent generic_EventMC, NovelBaseFitter m_novel_fitter, NovelBaseFitter m_novel_fitterMC) {
 		//System.out.println("in do dihad with "+generic_Event.count() + "particles ");
+		
+		if(novel_fitter.evtNumber==51831184)
+		{
+			System.out.println("found our run..");
+		}
 		for (int i = 0; i < generic_Event.count(); i++) 
 		
 		
@@ -243,7 +256,7 @@ public class FitterTester {
 					// Systefm.out.println("lookign at pid " + part2.pid());
 					if (part2.pid() == ((-1)*LundPID.Pion.lundCode()) || part2.pid()==((-1)*LundPID.Kaon.lundCode())){
 						
-						
+						System.out.println("part mom1: "+ part.p() +" mom2: " +part2.p());
 					if(part.e()<1.0 || part2.e()<1.0)
 						continue;
 					if(part.theta()<0.17 || part2.theta()<0.17)
