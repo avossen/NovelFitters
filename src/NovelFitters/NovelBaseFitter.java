@@ -317,7 +317,7 @@ public static int debugEvent=48478732;
 				{
 					System.out.println("found our run.. (novel base)");
 				}
-				// System.out.println("helicity: " + helicity);
+			//	System.out.println("helicity: " + helicity);
 
 				// seems like mc does not have status or chi2pid
 				
@@ -1002,13 +1002,14 @@ if(this.evtNumber==debugEvent && isHadron==false)
 				else
 					helic=1;
 				
-			//	System.out.println("helic is  " + helic);
+			//System.out.println("helic is  " + helic);
 			}
 			else
 			{
 				runNumber=eventBank.getInt("NRUN",0);
 				evtNumber=eventBank.getInt("NEVENT",0);
 				helic= eventBank.getByte("Helic", 0);
+				//System.out.println("helic is  " + helic);
 			}
 		}
 		return helic;
